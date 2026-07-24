@@ -11,7 +11,7 @@ from pathlib import Path
 
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
-HARNESS_LIB = WORKSPACE_ROOT / ".claude" / "lib"
+HARNESS_LIB = WORKSPACE_ROOT / "harness" / ".claude" / "lib"
 sys.path.insert(0, str(HARNESS_LIB))
 
 from chatbi_harness.config import load_effective_config  # noqa: E402
@@ -551,7 +551,7 @@ class PolicyDeterminismAndCanaryTests(unittest.TestCase):
 # Cycle 5 E2E and documented in docs/harness/security.md.
 # ---------------------------------------------------------------------------
 
-PRETOOL_HOOK_PATH = WORKSPACE_ROOT / ".claude" / "hooks" / "pretool_guard.py"
+PRETOOL_HOOK_PATH = WORKSPACE_ROOT / "harness" / ".claude" / "hooks" / "pretool_guard.py"
 
 
 def _pretool_shared_config(
@@ -1108,12 +1108,12 @@ class PermissionLayerDenyProofTests(_PreToolUseTestBase):
         # install in docs/harness/security.md and is NOT present in the dev
         # settings.json (which stays SessionStart-only to avoid self-deadlock).
         settings = json.loads(
-            (WORKSPACE_ROOT / ".claude" / "settings.json").read_text("utf-8")
+            (WORKSPACE_ROOT / "harness" / ".claude" / "settings.json").read_text("utf-8")
         )
         self.assertEqual({"hooks"}, set(settings))
         self.assertEqual({"SessionStart"}, set(settings["hooks"]))
         security = (
-            (WORKSPACE_ROOT / "docs" / "harness" / "security.md")
+            (WORKSPACE_ROOT / "harness" / "docs" / "harness" / "security.md")
             .read_text("utf-8")
         )
         self.assertIn("permissions", security)
@@ -1181,7 +1181,7 @@ class SandboxLayerDenyProofTests(unittest.TestCase):
 # would simply be ignored (the gate still re-validates from cwd).
 # ---------------------------------------------------------------------------
 
-CONFIG_CHANGE_HOOK_PATH = WORKSPACE_ROOT / ".claude" / "hooks" / "config_change_gate.py"
+CONFIG_CHANGE_HOOK_PATH = WORKSPACE_ROOT / "harness" / ".claude" / "hooks" / "config_change_gate.py"
 
 
 def _config_change_shared_config(
@@ -1686,12 +1686,12 @@ class ConfigChangeCanaryTests(_ConfigChangeTestBase):
         # (self-deadlock avoidance, same as Ticket 05). ConfigChange settings
         # activation is deferred to Cycle 5 E2E.
         settings = json.loads(
-            (WORKSPACE_ROOT / ".claude" / "settings.json").read_text("utf-8")
+            (WORKSPACE_ROOT / "harness" / ".claude" / "settings.json").read_text("utf-8")
         )
         self.assertEqual({"hooks"}, set(settings))
         self.assertEqual({"SessionStart"}, set(settings["hooks"]))
         security = (
-            (WORKSPACE_ROOT / "docs" / "harness" / "security.md")
+            (WORKSPACE_ROOT / "harness" / "docs" / "harness" / "security.md")
             .read_text("utf-8")
         )
         self.assertIn("ConfigChange", security)

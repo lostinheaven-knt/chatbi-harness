@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
-HARNESS_LIB = WORKSPACE_ROOT / ".claude" / "lib"
+HARNESS_LIB = WORKSPACE_ROOT / "harness" / ".claude" / "lib"
 sys.path.insert(0, str(HARNESS_LIB))
 
 from chatbi_harness.gates import validate_domain_contract  # noqa: E402
@@ -39,7 +39,7 @@ def write_minimal_contract(root: Path, artifact_text: str = "Rules: HOOK-004") -
 
 class DomainContractTests(unittest.TestCase):
     def test_checked_in_contract_is_valid(self) -> None:
-        decision = validate_domain_contract(WORKSPACE_ROOT)
+        decision = validate_domain_contract(WORKSPACE_ROOT / "harness")
 
         self.assertEqual("pass", decision.status, decision.to_json())
         self.assertEqual(("HOOK-004",), decision.rule_ids)
@@ -47,7 +47,7 @@ class DomainContractTests(unittest.TestCase):
     def test_checked_in_contract_covers_governed_rules_and_root_responsibilities(self) -> None:
         domain_rule_ids = set(
             RULE_ID.findall(
-                (WORKSPACE_ROOT / "docs/chatbi-harness-domain-model.md").read_text(
+                (WORKSPACE_ROOT / "harness" / "docs/chatbi-harness-domain-model.md").read_text(
                     encoding="utf-8"
                 )
             )
@@ -56,11 +56,11 @@ class DomainContractTests(unittest.TestCase):
         for relative_path in CONTRACT_ARTIFACTS:
             contract_rule_ids.update(
                 RULE_ID.findall(
-                    (WORKSPACE_ROOT / relative_path).read_text(encoding="utf-8")
+                    (WORKSPACE_ROOT / "harness" / relative_path).read_text(encoding="utf-8")
                 )
             )
 
-        root_contract = (WORKSPACE_ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+        root_contract = (WORKSPACE_ROOT / "harness" / "CLAUDE.md").read_text(encoding="utf-8")
         required_routes = (
             "/chatbi-init",
             "/chatbi-analyze",

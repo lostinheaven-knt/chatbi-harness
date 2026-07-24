@@ -37,7 +37,7 @@ from pathlib import Path
 from typing import Any
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
-HARNESS_LIB = WORKSPACE_ROOT / ".claude" / "lib"
+HARNESS_LIB = WORKSPACE_ROOT / "harness" / ".claude" / "lib"
 sys.path.insert(0, str(HARNESS_LIB))
 
 from chatbi_harness.adapters.fixture import FixtureAdapter  # noqa: E402
@@ -62,14 +62,14 @@ from chatbi_harness.adapters import select_adapter  # noqa: E402
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
 SCENARIOS_DIR = (
-    WORKSPACE_ROOT / ".claude" / "fixtures" / "evaluations" / "analysis-scenarios"
+    WORKSPACE_ROOT / "harness" / ".claude" / "fixtures" / "evaluations" / "analysis-scenarios"
 )
-EVAL_SUITE_DIR = WORKSPACE_ROOT / ".claude" / "fixtures" / "evaluations" / "suite"
-COMMANDS_DIR = WORKSPACE_ROOT / ".claude" / "commands"
-REVIEW_GATE = WORKSPACE_ROOT / ".claude" / "hooks" / "subagent_review_gate.py"
-STOP_GATE = WORKSPACE_ROOT / ".claude" / "hooks" / "stop_gate.py"
-POSTTOOL_GATE = WORKSPACE_ROOT / ".claude" / "hooks" / "posttool_impact.py"
-KNOWLEDGE_REFS = (WORKSPACE_ROOT / ".claude" / "skills" / "chatbi-knowledge"
+EVAL_SUITE_DIR = WORKSPACE_ROOT / "harness" / ".claude" / "fixtures" / "evaluations" / "suite"
+COMMANDS_DIR = WORKSPACE_ROOT / "harness" / ".claude" / "commands"
+REVIEW_GATE = WORKSPACE_ROOT / "harness" / ".claude" / "hooks" / "subagent_review_gate.py"
+STOP_GATE = WORKSPACE_ROOT / "harness" / ".claude" / "hooks" / "stop_gate.py"
+POSTTOOL_GATE = WORKSPACE_ROOT / "harness" / ".claude" / "hooks" / "posttool_impact.py"
+KNOWLEDGE_REFS = (WORKSPACE_ROOT / "harness" / ".claude" / "skills" / "chatbi-knowledge"
                   / "references")
 
 _COVERAGE_KEYS = (

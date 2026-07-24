@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
-HARNESS_LIB = WORKSPACE_ROOT / ".claude" / "lib"
+HARNESS_LIB = WORKSPACE_ROOT / "harness" / ".claude" / "lib"
 sys.path.insert(0, str(HARNESS_LIB))
 
 from chatbi_harness.diagnostics import (  # noqa: E402
@@ -44,12 +44,12 @@ def install_domain_contract(workspace: Path) -> None:
     ):
         destination = workspace / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(WORKSPACE_ROOT / relative, destination)
+        shutil.copy2(WORKSPACE_ROOT / "harness" / relative, destination)
 
 
 def write_ready_config(workspace: Path) -> Path:
     config = json.loads(
-        (WORKSPACE_ROOT / ".claude" / "chatbi-harness.json").read_text(
+        (WORKSPACE_ROOT / "harness" / ".claude" / "chatbi-harness.json").read_text(
             encoding="utf-8"
         )
     )
@@ -108,7 +108,7 @@ class InitDiagnosticTests(unittest.TestCase):
             missing_config = Path(".claude/missing.json")
             outside_config = Path(directory) / "outside-secret-canary.json"
             shutil.copy2(
-                WORKSPACE_ROOT / ".claude" / "chatbi-harness.json",
+                WORKSPACE_ROOT / "harness" / ".claude" / "chatbi-harness.json",
                 outside_config,
             )
             linked_config = workspace / ".claude" / "linked-config.json"
@@ -159,7 +159,7 @@ class InitDiagnosticTests(unittest.TestCase):
             shared_config = workspace / ".claude" / "chatbi-harness.json"
             shared = json.loads(
                 (
-                    WORKSPACE_ROOT / ".claude" / "chatbi-harness.json"
+                    WORKSPACE_ROOT / "harness" / ".claude" / "chatbi-harness.json"
                 ).read_text(encoding="utf-8")
             )
             shared["business_codebases"] = {
@@ -253,7 +253,7 @@ class InitDiagnosticTests(unittest.TestCase):
             install_domain_contract(workspace)
             shared_config = workspace / ".claude" / "chatbi-harness.json"
             shutil.copy2(
-                WORKSPACE_ROOT / ".claude" / "chatbi-harness.json",
+                WORKSPACE_ROOT / "harness" / ".claude" / "chatbi-harness.json",
                 shared_config,
             )
             unavailable = CapabilitySnapshot(
@@ -468,9 +468,9 @@ class InitDiagnosticTests(unittest.TestCase):
         self.assertNotIn("secret-canary", failed_probe.to_json())
 
     def test_init_command_and_minimal_docs_state_the_current_contract(self) -> None:
-        command = WORKSPACE_ROOT / ".claude" / "commands" / "chatbi-init.md"
-        installation = WORKSPACE_ROOT / "docs" / "harness" / "installation.md"
-        configuration = WORKSPACE_ROOT / "docs" / "harness" / "configuration.md"
+        command = WORKSPACE_ROOT / "harness" / ".claude" / "commands" / "chatbi-init.md"
+        installation = WORKSPACE_ROOT / "harness" / "docs" / "harness" / "installation.md"
+        configuration = WORKSPACE_ROOT / "harness" / "docs" / "harness" / "configuration.md"
 
         command_text = command.read_text(encoding="utf-8")
         for heading in (

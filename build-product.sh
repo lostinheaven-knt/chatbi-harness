@@ -22,35 +22,35 @@ mkdir -p "$DEST/.claude/agents" "$DEST/.claude/commands" "$DEST/.claude/skills" 
          "$DEST/docs/harness"
 
 # --- harness code + hooks + schemas + fixtures + rules + config ---
-rsync -a --exclude='__pycache__' "$DEV/.claude/lib/"        "$DEST/.claude/lib/"
-rsync -a --exclude='__pycache__' "$DEV/.claude/hooks/"      "$DEST/.claude/hooks/"
-rsync -a                         "$DEV/.claude/schemas/"    "$DEST/.claude/schemas/"
-rsync -a                         "$DEV/.claude/fixtures/"   "$DEST/.claude/fixtures/"
-rsync -a                         "$DEV/.claude/rules/"      "$DEST/.claude/rules/"
-cp "$DEV/.claude/settings.json" "$DEST/.claude/settings.json"
-cp "$DEV/.claude/chatbi-harness.json" \
-   "$DEV/.claude/chatbi-harness.example.json" \
-   "$DEV/.claude/chatbi-harness.local.example.json" "$DEST/.claude/"
+rsync -a --exclude='__pycache__' "$DEV/harness/.claude/lib/"        "$DEST/.claude/lib/"
+rsync -a --exclude='__pycache__' "$DEV/harness/.claude/hooks/"      "$DEST/.claude/hooks/"
+rsync -a                         "$DEV/harness/.claude/schemas/"    "$DEST/.claude/schemas/"
+rsync -a                         "$DEV/harness/.claude/fixtures/"   "$DEST/.claude/fixtures/"
+rsync -a                         "$DEV/harness/.claude/rules/"      "$DEST/.claude/rules/"
+cp "$DEV/harness/.claude/settings.json" "$DEST/.claude/settings.json"
+cp "$DEV/harness/.claude/chatbi-harness.json" \
+   "$DEV/harness/.claude/chatbi-harness.example.json" \
+   "$DEV/harness/.claude/chatbi-harness.local.example.json" "$DEST/.claude/"
 
 # --- commands: the 6 chatbi commands (NOT orchestrate.md) ---
 for c in chatbi-init chatbi-analyze chatbi-maintain-model \
          chatbi-maintain-knowledge chatbi-evaluate chatbi-correction; do
-  cp "$DEV/.claude/commands/$c.md" "$DEST/.claude/commands/"
+  cp "$DEV/harness/.claude/commands/$c.md" "$DEST/.claude/commands/"
 done
 
 # --- agents: ONLY adversarial-reviewer (NOT plan/coder/test-agent) ---
-cp "$DEV/.claude/agents/adversarial-reviewer.md" "$DEST/.claude/agents/"
+cp "$DEV/harness/.claude/agents/adversarial-reviewer.md" "$DEST/.claude/agents/"
 
 # --- skills: all chatbi-* skills ---
-rsync -a "$DEV/.claude/skills/" "$DEST/.claude/skills/"
+rsync -a "$DEV/harness/.claude/skills/" "$DEST/.claude/skills/"
 
 # --- docs: domain-model + harness/ only (NOT dev docs) ---
-cp "$DEV/docs/chatbi-harness-domain-model.md" "$DEST/docs/"
-rsync -a "$DEV/docs/harness/" "$DEST/docs/harness/"
+cp "$DEV/harness/docs/chatbi-harness-domain-model.md" "$DEST/docs/"
+rsync -a "$DEV/harness/docs/harness/" "$DEST/docs/harness/"
 
 # --- root files ---
-cp "$DEV/CLAUDE.md" "$DEV/CONTEXT.md" "$DEV/e2e-state.py" "$DEST/"
-cp "$DEV/product-README.md" "$DEST/README.md"
+cp "$DEV/harness/CLAUDE.md" "$DEV/harness/CONTEXT.md" "$DEV/harness/e2e-state.py" "$DEST/"
+cp "$DEV/harness/product-README.md" "$DEST/README.md"
 
 # --- validate ---
 echo "=== product built. Validating... ==="

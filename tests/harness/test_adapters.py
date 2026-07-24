@@ -29,7 +29,7 @@ from typing import Any
 from unittest.mock import patch
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
-HARNESS_LIB = WORKSPACE_ROOT / ".claude" / "lib"
+HARNESS_LIB = WORKSPACE_ROOT / "harness" / ".claude" / "lib"
 sys.path.insert(0, str(HARNESS_LIB))
 
 from chatbi_harness.adapters import (  # noqa: E402
@@ -1214,7 +1214,7 @@ class NoPathLeakageTests(unittest.TestCase):
 # FixtureAdapter (Ticket 03: explicit-test fixture adapter)
 # --------------------------------------------------------------------------
 
-_FIXTURES_ROOT = WORKSPACE_ROOT / ".claude" / "fixtures"
+_FIXTURES_ROOT = WORKSPACE_ROOT / "harness" / ".claude" / "fixtures"
 _SECRET_CANARY = re.compile(
     r"(?i)"
     r"(?:canary"
@@ -1640,7 +1640,7 @@ from chatbi_harness.adapters.codebase_reader import (  # noqa: E402
 from chatbi_harness.gates import GateError as _PathGateError  # noqa: E402
 from chatbi_harness.paths import resolve_path_reference  # noqa: E402
 
-_CODEBASES_FIXTURES_ROOT = WORKSPACE_ROOT / ".claude" / "fixtures" / "codebases"
+_CODEBASES_FIXTURES_ROOT = WORKSPACE_ROOT / "harness" / ".claude" / "fixtures" / "codebases"
 _BILLING_APP_FIXTURE = _CODEBASES_FIXTURES_ROOT / "billing_app"
 
 # Files in the fixture codebase tree (relative paths).

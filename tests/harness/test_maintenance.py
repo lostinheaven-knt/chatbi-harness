@@ -26,7 +26,7 @@ import unittest
 from pathlib import Path
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
-HARNESS_LIB = WORKSPACE_ROOT / ".claude" / "lib"
+HARNESS_LIB = WORKSPACE_ROOT / "harness" / ".claude" / "lib"
 sys.path.insert(0, str(HARNESS_LIB))
 
 from chatbi_harness.gates import GateError  # noqa: E402
@@ -37,7 +37,7 @@ from chatbi_harness.impact import (  # noqa: E402
     validate_impact_manifest,
 )
 
-POSTTOOL_GATE = WORKSPACE_ROOT / ".claude" / "hooks" / "posttool_impact.py"
+POSTTOOL_GATE = WORKSPACE_ROOT / "harness" / ".claude" / "hooks" / "posttool_impact.py"
 
 CANARY_SECRET = "sk-secret-canary"
 CANARY_PATH = "/home/canary/secret-canary-path"

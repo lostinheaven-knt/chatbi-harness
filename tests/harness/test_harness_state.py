@@ -18,18 +18,18 @@ import unittest
 from pathlib import Path
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
-HARNESS_LIB = WORKSPACE_ROOT / ".claude" / "lib"
+HARNESS_LIB = WORKSPACE_ROOT / "harness" / ".claude" / "lib"
 sys.path.insert(0, str(HARNESS_LIB))
 
 from chatbi_harness.harness_state import read_state, state_path, write_state  # noqa: E402
 from chatbi_harness.impact import build_impact_manifest  # noqa: E402
 from chatbi_harness.evidence import validate_review  # noqa: E402
 
-STOP_GATE = WORKSPACE_ROOT / ".claude" / "hooks" / "stop_gate.py"
-POSTTOOL_GATE = WORKSPACE_ROOT / ".claude" / "hooks" / "posttool_impact.py"
-REVIEW_GATE = WORKSPACE_ROOT / ".claude" / "hooks" / "subagent_review_gate.py"
-PRETOOL_GATE = WORKSPACE_ROOT / ".claude" / "hooks" / "pretool_guard.py"
-VALID_MINIMAL = WORKSPACE_ROOT / ".claude" / "fixtures" / "config" / "valid-minimal.json"
+STOP_GATE = WORKSPACE_ROOT / "harness" / ".claude" / "hooks" / "stop_gate.py"
+POSTTOOL_GATE = WORKSPACE_ROOT / "harness" / ".claude" / "hooks" / "posttool_impact.py"
+REVIEW_GATE = WORKSPACE_ROOT / "harness" / ".claude" / "hooks" / "subagent_review_gate.py"
+PRETOOL_GATE = WORKSPACE_ROOT / "harness" / ".claude" / "hooks" / "pretool_guard.py"
+VALID_MINIMAL = WORKSPACE_ROOT / "harness" / ".claude" / "fixtures" / "config" / "valid-minimal.json"
 
 _COVERAGE = ("entity", "grain", "joins", "filters_exclusions", "date_timezone",
              "denominator", "sample_bias", "quality",

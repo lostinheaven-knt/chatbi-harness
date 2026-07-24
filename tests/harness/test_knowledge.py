@@ -15,7 +15,7 @@ import unittest
 from pathlib import Path
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
-HARNESS_LIB = WORKSPACE_ROOT / ".claude" / "lib"
+HARNESS_LIB = WORKSPACE_ROOT / "harness" / ".claude" / "lib"
 sys.path.insert(0, str(HARNESS_LIB))
 
 from chatbi_harness.knowledge import (  # noqa: E402
@@ -24,7 +24,7 @@ from chatbi_harness.knowledge import (  # noqa: E402
     lint_reference,
 )
 
-REFS_DIR = (WORKSPACE_ROOT / ".claude" / "skills" / "chatbi-knowledge"
+REFS_DIR = (WORKSPACE_ROOT / "harness" / ".claude" / "skills" / "chatbi-knowledge"
             / "references")
 TEMPLATE = (REFS_DIR / "_template.md").read_text()
 FIXTURE_DOMAIN = (REFS_DIR / "fixture-domain.md").read_text()

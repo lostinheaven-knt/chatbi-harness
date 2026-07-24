@@ -8,8 +8,8 @@ from pathlib import Path
 
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
-HARNESS_LIB = WORKSPACE_ROOT / ".claude" / "lib"
-CONFIG_FIXTURES = WORKSPACE_ROOT / ".claude" / "fixtures" / "config"
+HARNESS_LIB = WORKSPACE_ROOT / "harness" / ".claude" / "lib"
+CONFIG_FIXTURES = WORKSPACE_ROOT / "harness" / ".claude" / "fixtures" / "config"
 sys.path.insert(0, str(HARNESS_LIB))
 
 from chatbi_harness.config import load_effective_config  # noqa: E402
@@ -60,11 +60,11 @@ def minimal_shared_config() -> dict[str, object]:
 class EffectiveConfigTests(unittest.TestCase):
     def test_checked_in_examples_and_config_fixtures_are_executable_contracts(self) -> None:
         shared = load_effective_config(
-            WORKSPACE_ROOT / ".claude" / "chatbi-harness.json"
+            WORKSPACE_ROOT / "harness" / ".claude" / "chatbi-harness.json"
         )
         example = load_effective_config(
-            WORKSPACE_ROOT / ".claude" / "chatbi-harness.example.json",
-            WORKSPACE_ROOT / ".claude" / "chatbi-harness.local.example.json",
+            WORKSPACE_ROOT / "harness" / ".claude" / "chatbi-harness.example.json",
+            WORKSPACE_ROOT / "harness" / ".claude" / "chatbi-harness.local.example.json",
         )
 
         self.assertEqual(1, shared["schema_version"])

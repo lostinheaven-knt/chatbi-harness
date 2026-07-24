@@ -12,10 +12,10 @@ from pathlib import Path
 
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
-HOOK_PATH = WORKSPACE_ROOT / ".claude" / "hooks" / "session_diagnose.py"
-HOOK_LAUNCHER = WORKSPACE_ROOT / ".claude" / "hooks" / "session_diagnose"
+HOOK_PATH = WORKSPACE_ROOT / "harness" / ".claude" / "hooks" / "session_diagnose.py"
+HOOK_LAUNCHER = WORKSPACE_ROOT / "harness" / ".claude" / "hooks" / "session_diagnose"
 PYTHON_BINDING_LAUNCHER = (
-    WORKSPACE_ROOT / ".claude" / "hooks" / "python_binding_launcher.py"
+    WORKSPACE_ROOT / "harness" / ".claude" / "hooks" / "python_binding_launcher.py"
 )
 
 
@@ -30,13 +30,13 @@ def install_domain_contract(workspace: Path) -> None:
     ):
         destination = workspace / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(WORKSPACE_ROOT / relative, destination)
+        shutil.copy2(WORKSPACE_ROOT / "harness" / relative, destination)
 
 
 def install_shared_config(workspace: Path) -> None:
     destination = workspace / ".claude" / "chatbi-harness.json"
     destination.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(WORKSPACE_ROOT / ".claude" / "chatbi-harness.json", destination)
+    shutil.copy2(WORKSPACE_ROOT / "harness" / ".claude" / "chatbi-harness.json", destination)
 
 
 def install_hook_runtime(workspace: Path) -> None:
@@ -49,7 +49,7 @@ def install_hook_runtime(workspace: Path) -> None:
         hooks / PYTHON_BINDING_LAUNCHER.name,
     )
     shutil.copytree(
-        WORKSPACE_ROOT / ".claude" / "lib",
+        WORKSPACE_ROOT / "harness" / ".claude" / "lib",
         workspace / ".claude" / "lib",
     )
 
@@ -109,7 +109,7 @@ def run_configured_hook(
     environment: dict[str, str],
 ) -> subprocess.CompletedProcess[bytes]:
     settings = json.loads(
-        (WORKSPACE_ROOT / ".claude" / "settings.json").read_text(encoding="utf-8")
+        (WORKSPACE_ROOT / "harness" / ".claude" / "settings.json").read_text(encoding="utf-8")
     )
     command = settings["hooks"]["SessionStart"][0]["hooks"][0]["command"]
     return subprocess.run(
@@ -447,9 +447,9 @@ class SessionStartHookTests(unittest.TestCase):
     def test_settings_and_compatibility_document_only_the_verified_contract(
         self,
     ) -> None:
-        settings_path = WORKSPACE_ROOT / ".claude" / "settings.json"
-        compatibility_path = WORKSPACE_ROOT / "docs" / "harness" / "compatibility.md"
-        installation_path = WORKSPACE_ROOT / "docs" / "harness" / "installation.md"
+        settings_path = WORKSPACE_ROOT / "harness" / ".claude" / "settings.json"
+        compatibility_path = WORKSPACE_ROOT / "harness" / "docs" / "harness" / "compatibility.md"
+        installation_path = WORKSPACE_ROOT / "harness" / "docs" / "harness" / "installation.md"
 
         settings = json.loads(settings_path.read_text(encoding="utf-8"))
         self.assertEqual({"hooks"}, set(settings))

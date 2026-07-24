@@ -26,8 +26,8 @@ from pathlib import Path
 
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
-REVIEW_GATE = WORKSPACE_ROOT / ".claude" / "hooks" / "subagent_review_gate.py"
-STOP_GATE = WORKSPACE_ROOT / ".claude" / "hooks" / "stop_gate.py"
+REVIEW_GATE = WORKSPACE_ROOT / "harness" / ".claude" / "hooks" / "subagent_review_gate.py"
+STOP_GATE = WORKSPACE_ROOT / "harness" / ".claude" / "hooks" / "stop_gate.py"
 
 # Valid 64-hex SHA-256 values (distinct, so a mismatch is detectable).
 SHA_CURRENT = "a" * 64
