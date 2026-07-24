@@ -1,0 +1,36 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "correction.schema.json",
+  "title": "ChatBI correction record",
+  "description": "A correction produces BOTH a fix candidate AND an eval-case candidate (FBK-002); owner_approved defaults to false (no auto-merge; SEM-003). Carries the FBK-003 statement. Applicable rules: FBK-001/002/003, SEM-003, ABL-001/002, SEC-003, PORT-001.",
+  "x-implemented-keywords": ["type", "enum", "required", "properties", "items", "additionalProperties"],
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["correction_id", "description", "fix_candidate", "eval_case_candidate", "owner_approved", "rule_ids", "fbk_003_statement"],
+  "properties": {
+    "correction_id": {"type": "string"},
+    "description": {"type": "string"},
+    "fix_candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "target", "change_summary"],
+      "properties": {
+        "kind": {"type": "string", "enum": ["reference", "Skill", "model"]},
+        "target": {"type": "string"},
+        "change_summary": {"type": "string"}
+      }
+    },
+    "eval_case_candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["assertion_id", "expected_hash"],
+      "properties": {
+        "assertion_id": {"type": "string"},
+        "expected_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "owner_approved": {"type": "boolean"},
+    "rule_ids": {"type": "array", "items": {"type": "string"}},
+    "fbk_003_statement": {"type": "string"}
+  }
+}

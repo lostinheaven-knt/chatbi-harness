@@ -1,0 +1,9 @@
+{
+  "suite_id": "long-tail",
+  "description": "Synthetic long-tail business-context evaluation cases. No organizational real facts/secrets/paths. Ground truth loaded into GroundTruthVault; session under test receives only hashes.",
+  "cases": [
+    {"assertion_id": "lt-1", "input": {"question": "refunded revenue by region", "entity": "refunds_example"}, "expected": {"value": 5, "unit": "count"}, "rule_ids": ["RAW-001", "SRC-001"], "semantic_covered": false},
+    {"assertion_id": "lt-2", "input": {"question": "revenue trend qoq", "entity": "revenue_example"}, "expected": {"value": 0.12, "unit": "ratio"}, "rule_ids": ["SEM-001", "QLT-001"], "semantic_covered": true},
+    {"assertion_id": "lt-3", "input": {"question": "cohort retention", "entity": "retention_example"}, "expected": {"value": 0.6, "unit": "ratio"}, "rule_ids": ["RAW-003"], "semantic_covered": false}
+  ]
+}

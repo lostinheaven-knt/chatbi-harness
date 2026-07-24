@@ -1,0 +1,13 @@
+#!/bin/sh
+# Enter the binding validator through a fixed OS path; never resolve Python from PATH.
+
+fail_binding() {
+    printf '%s\n' '{"evidence_refs":["hook:session-start:python-binding"],"reason":"Confirmed Python binding is unavailable or outside the approved runtime boundary","recovery":"Set CHATBI_PYTHON to a confirmed absolute executable outside Workspace and Business roots","rule_ids":["SCOPE-001","SEC-001","PORT-001","HOOK-004"],"status":"block"}' >&2
+    exit 2
+}
+
+[ -x /usr/bin/python3 ] || fail_binding
+[ -f .claude/hooks/python_binding_launcher.py ] || fail_binding
+[ ! -L .claude/hooks/python_binding_launcher.py ] || fail_binding
+
+exec /usr/bin/python3 -B -I .claude/hooks/python_binding_launcher.py

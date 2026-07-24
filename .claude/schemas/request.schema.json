@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "request.schema.json",
+  "title": "ChatBI Harness Analysis Request",
+  "description": "Analysis request payload validated by the documented project JSON Schema subset only; this is not a claim of complete JSON Schema implementation. Applicable rules: REQ-001, REQ-002, SEC-001.",
+  "x-implemented-keywords": [
+    "type",
+    "required",
+    "properties",
+    "additionalProperties",
+    "enum",
+    "pattern"
+  ],
+  "type": "object",
+  "required": [
+    "question",
+    "time_range",
+    "entity",
+    "segment",
+    "actor",
+    "purpose",
+    "supported_decision"
+  ],
+  "properties": {
+    "question": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "time_range": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "entity": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "segment": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "actor": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "purpose": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "supported_decision": {
+      "type": "string",
+      "pattern": "\\S"
+    }
+  },
+  "additionalProperties": false
+}

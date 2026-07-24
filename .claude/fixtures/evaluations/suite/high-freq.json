@@ -1,0 +1,9 @@
+{
+  "suite_id": "high-freq",
+  "description": "Synthetic high-frequency dashboard evaluation cases. No organizational real facts/secrets/paths. Ground truth (expected) is loaded into GroundTruthVault; the session under test receives only AssertionResult hashes.",
+  "cases": [
+    {"assertion_id": "hf-1", "input": {"question": "revenue last month", "entity": "revenue_example"}, "expected": {"value": 42, "unit": "count"}, "rule_ids": ["SEM-001", "SEM-002"], "semantic_covered": true},
+    {"assertion_id": "hf-2", "input": {"question": "active users", "entity": "active_users_example"}, "expected": {"value": 7, "unit": "count"}, "rule_ids": ["SEM-001"], "semantic_covered": true},
+    {"assertion_id": "hf-3", "input": {"question": "order count", "entity": "orders_example"}, "expected": {"value": 100, "unit": "count"}, "rule_ids": ["SEM-001", "QLT-001"], "semantic_covered": true}
+  ]
+}

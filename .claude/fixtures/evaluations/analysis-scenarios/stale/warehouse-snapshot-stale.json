@@ -1,0 +1,22 @@
+{
+  "snapshot_version": "fixture-stale-1",
+  "description": "Synthetic warehouse snapshot for the stale scenario. The snapshot_date is 2024-01-15, but the request covers 2024-01-01 through 2024-03-31. Freshness for 2024-01-16 onward is unknown. No organizational facts, no credentials, no PII, no machine paths.",
+  "snapshot_date": "2024-01-15",
+  "request_range": "2024-01-01_to_2024-03-31",
+  "freshness": "unknown",
+  "freshness_note": "Snapshot only covers data through 2024-01-15; the remainder of the requested quarter has unknown freshness.",
+  "columns": ["region", "product", "order_count", "revenue"],
+  "rows": [
+    {"region": "alpha", "product": "widget", "order_count": 10, "revenue": 1000},
+    {"region": "beta", "product": "gadget", "order_count": 20, "revenue": 2000}
+  ],
+  "totals": {
+    "order_count": 30,
+    "revenue": 3000
+  },
+  "quality_flags": {
+    "complete_for_snapshot_date": true,
+    "complete_for_request_range": false,
+    "anomalies": []
+  }
+}

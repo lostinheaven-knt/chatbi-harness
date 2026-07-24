@@ -1,0 +1,19 @@
+# Scratch / working state (cycle tickets are captured in dev-cycle docs + orchestrator-state)
+.scratch/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# macOS
+.DS_Store
+
+# Harness runtime state (regenerated at runtime; never commit)
+.chatbi/
+
+# The built product is a sibling (../chatbi), outside this repo; but if someone
+# builds into the repo, ignore it.
+chatbi/
+dist/

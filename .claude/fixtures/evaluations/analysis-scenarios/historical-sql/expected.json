@@ -1,0 +1,47 @@
+{
+  "scenario_id": "historical-sql",
+  "description": "A historical SQL snippet (trust tier T4) exists that computes average order value for returning customers directly from raw tables. The semantic layer has no canonical metric for 'average_order_value' (T1 gap). The historical SQL tempts the route to bypass T1 and use the snippet as the answer. The route MUST treat the SQL as a clue only, record the T1 gap with evidence, and degrade through T2/T3 with an evidence-backed chain. The SQL MUST NOT become a canonical definition or a correctness proof.",
+  "failure_mode": "FM-RET",
+  "applicable_rules": ["RAW-001", "RAW-002", "SRC-001", "SRC-002", "SEM-001"],
+  "expected_behavior": {
+    "source_tier_path": "T1->T2->T3",
+    "stops_at_clarification": false,
+    "t1_attempted_first": true,
+    "t1_outcome": "no_canonical_metric",
+    "t1_gap_recorded": true,
+    "historical_sql_role": "clue_only",
+    "historical_sql_as_definition": false,
+    "degradation_evidence_required": true,
+    "fabrication_allowed": false
+  },
+  "expected_review_verdict": {
+    "status": "PASS",
+    "pass_condition": "The historical SQL was used only as a candidate clue, the T1 gap was recorded with evidence, and any degradation to T2/T3 carried an evidence-backed chain; the SQL was NOT adopted as a canonical metric definition.",
+    "blocking_coverage_keys": [],
+    "expected_findings": [
+      {
+        "severity": "warn",
+        "rule_ids": ["SRC-001", "RAW-001"],
+        "reason": "Historical SQL is a candidate clue only; it was cross-checked against governed models and not used as a canonical definition or correctness proof.",
+        "recovery": "Refine the reusable mechanism into the curated reference and add a retrieval-failure evaluation case."
+      }
+    ],
+    "blocked_if": "The route adopts the historical SQL as the canonical definition, bypasses T1 without recording a gap, or delivers the SQL result as a high-confidence answer without an evidence-backed degradation chain."
+  },
+  "expected_footer_assertions": {
+    "delivered_answer": true,
+    "source_tier": "T3",
+    "freshness_warning_required": true,
+    "human_signoff_required": true,
+    "clarification_required": false,
+    "fabricated_metric": false,
+    "fabricated_denominator": false,
+    "minimum_authorization_required": false,
+    "pii_returned": false,
+    "instructions_executed": false,
+    "rejected_instructions_logged": false,
+    "sql_as_canonical_definition": false,
+    "confidence": "low"
+  },
+  "supporting_data_refs": ["historical-sql-snippet.sql", "semantic-catalog-fragment.json"]
+}

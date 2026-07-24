@@ -1,0 +1,36 @@
+{
+  "catalog_version": "fixture-historical-sql-1",
+  "description": "Synthetic semantic-catalog fragment for the historical-sql scenario. The catalog has NO canonical metric for 'average_order_value' (T1 gap), which forces an evidence-backed degradation. The historical SQL is a T4 clue, not a definition. No organizational facts, no credentials, no PII, no machine paths.",
+  "metrics": [
+    {
+      "id": "fixture:metric:revenue",
+      "name": "Revenue",
+      "description": "Synthetic revenue metric; sum of order amounts.",
+      "dimensions": ["fixture:dim:region"],
+      "grain": "daily"
+    },
+    {
+      "id": "fixture:metric:order_count",
+      "name": "Order Count",
+      "description": "Synthetic order count metric.",
+      "dimensions": ["fixture:dim:region"],
+      "grain": "daily"
+    }
+  ],
+  "dimensions": [
+    {
+      "id": "fixture:dim:region",
+      "name": "Region"
+    }
+  ],
+  "segments": [
+    {
+      "id": "fixture:segment:returning",
+      "name": "Returning Customers",
+      "filter": "is_returning = true"
+    }
+  ],
+  "canonical_metric_for_average_order_value": false,
+  "t1_resolution": "no_match",
+  "t1_gap_reason": "No canonical metric for 'average_order_value' exists in the semantic layer; degradation to T2/T3 requires an evidence-backed chain."
+}

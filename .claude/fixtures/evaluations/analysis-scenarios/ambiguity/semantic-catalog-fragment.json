@@ -1,0 +1,42 @@
+{
+  "catalog_version": "fixture-ambiguity-1",
+  "description": "Synthetic semantic-catalog fragment for the ambiguity scenario. The catalog has NO canonical metric for 'active_users'. Two candidate definitions are recorded from two teams to exercise REQ-004 (present candidates, do not merge into a compromise metric). No organizational facts, no credentials, no PII, no machine paths.",
+  "metrics": [
+    {
+      "id": "fixture:metric:revenue",
+      "name": "Revenue",
+      "description": "Synthetic revenue metric; sum of order amounts.",
+      "dimensions": ["fixture:dim:region"],
+      "grain": "daily"
+    }
+  ],
+  "dimensions": [
+    {
+      "id": "fixture:dim:region",
+      "name": "Region"
+    }
+  ],
+  "segments": [
+    {
+      "id": "fixture:segment:high_value",
+      "name": "High Value Orders",
+      "filter": "amount > 1000"
+    }
+  ],
+  "candidate_definitions_for_active_users": [
+    {
+      "source_team": "growth_team_acme_example",
+      "definition": "distinct users who placed at least one order in the period",
+      "denominator": "none",
+      "notes": "Treats any order event as activity."
+    },
+    {
+      "source_team": "subscription_team_acme_example",
+      "definition": "distinct users with an active paid subscription at period end",
+      "denominator": "none",
+      "notes": "Excludes free-tier and churned users."
+    }
+  ],
+  "canonical_metric_present": false,
+  "t1_resolution": "no_match"
+}

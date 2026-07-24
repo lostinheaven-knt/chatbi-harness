@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "provenance.schema.json",
+  "title": "ChatBI Harness Provenance Footer",
+  "description": "Answer provenance footer validated by the documented project JSON Schema subset only. Covers all fields required by ANS-002 and ANS-003: source tier, freshness, owner, confidence, review round, and provenance references. Applicable rules: ANS-001, ANS-002, ANS-003, QLT-001.",
+  "x-implemented-keywords": [
+    "type",
+    "required",
+    "properties",
+    "additionalProperties",
+    "enum",
+    "pattern",
+    "minimum",
+    "items",
+    "minItems"
+  ],
+  "type": "object",
+  "required": [
+    "question",
+    "time_range",
+    "entity",
+    "segment",
+    "method",
+    "source_tier",
+    "filters",
+    "inclusions",
+    "exclusions",
+    "denominator",
+    "quality",
+    "limitations",
+    "review_round",
+    "freshness",
+    "owner",
+    "confidence",
+    "provenance_refs"
+  ],
+  "properties": {
+    "question": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "time_range": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "entity": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "segment": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "method": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "source_tier": {
+      "type": "string",
+      "enum": ["T1", "T2", "T3"]
+    },
+    "filters": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "\\S"
+      }
+    },
+    "inclusions": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "\\S"
+      }
+    },
+    "exclusions": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "\\S"
+      }
+    },
+    "denominator": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "quality": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "limitations": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "review_round": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "freshness": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "owner": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "confidence": {
+      "type": "string",
+      "enum": ["high", "medium", "low", "unknown"]
+    },
+    "provenance_refs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "pattern": "\\S"
+      }
+    }
+  },
+  "additionalProperties": false
+}

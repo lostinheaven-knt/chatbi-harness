@@ -1,0 +1,11 @@
+{
+  "path_bindings": {
+    "billing_app_root": "/replace/with/an/absolute/billing-app/path"
+  },
+  "cli_adapters": {
+    "semantic": {
+      "argv": ["approved-semantic-cli", "query", "--json"],
+      "credential_env_names": ["SEMANTIC_TOKEN"]
+    }
+  }
+}

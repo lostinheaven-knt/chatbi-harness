@@ -1,0 +1,9 @@
+{
+  "question": "How does the billing_app codebase define revenue for acme_example?",
+  "time_range": "2024-01-01_to_2024-01-31",
+  "entity": "revenue",
+  "segment": "billing_app_context",
+  "actor": "analyst_acme_example",
+  "purpose": "codebase_context_review",
+  "supported_decision": "metric_definition_alignment"
+}
