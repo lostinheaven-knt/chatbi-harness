@@ -4,9 +4,46 @@ This page documents the explicit `/chatbi-init` capability and offline `SessionS
 delivered in Cycle 1 Tickets 04 and 05. It does not describe later analysis, maintenance, or
 production rollout.
 
+## Pre-install self-check (target workspace)
+
+The harness install directory becomes the Warehouse Workspace root: SCOPE-001
+confines agent reads, writes, and commands to that root, so it must be a clean,
+dedicated boundary - not a subdirectory of an existing project. Before copying,
+confirm:
+
+- **Dedicated, empty root.** The target is an empty directory (ignoring
+  `.DS_Store`). `./install.sh <target>` aborts on a non-empty target unless
+  passed `--force`. Installing inside an existing project blurs the SCOPE-001
+  write boundary.
+- **No `.claude/` collision.** The target must not already contain `.claude/`
+  (another harness or Claude Code config). `install.sh` aborts on collision.
+- **No `CLAUDE.md` collision.** The target must not already contain `CLAUDE.md`
+  (contract collision). `install.sh` aborts on collision.
+- **Python 3.10+ outside the boundary.** A confirmed absolute Python 3.10+
+  executable must resolve OUTSIDE the target workspace (PORT-001). The harness
+  uses `@dataclass(slots=True)` (3.10+); Apple's `/usr/bin/python3` is 3.9 on
+  macOS and is too old - it is only the fixed bootstrap, never the runtime.
+  Homebrew `/opt/homebrew/bin/python3` or any 3.10+ `python3.*` works. The
+  launcher (`python_binding_launcher.py`) re-validates at every SessionStart and
+  fails closed if the binding is missing, relative, non-executable, or resolves
+  inside the workspace or a Business Codebase root.
+- **`CHATBI_PYTHON` is an env var, never a shared setting.** It is read from the
+  environment at SessionStart; do not persist it in `.claude/settings.json` or
+  any shared/git-tracked file. Claude Code must inherit it - export it in the
+  shell that starts `claude`, or in `~/.zshrc` / `~/.bashrc`.
+
+`./install.sh <target>` performs the copy and the 3.10+/boundary check
+automatically and prints the exact `export CHATBI_PYTHON=...` line. It does not
+modify your shell rc; that edit is yours to make.
+
 ## Install and run
 
 1. Place the shared Harness files under the intended Warehouse Workspace.
+   Automated: run `./install.sh <workspace-root>` from this product directory -
+   it copies the assets, verifies a Python 3.10+ executable outside the
+   workspace, and prints the `CHATBI_PYTHON` export. Manual alternative: copy
+   `.claude/`, `docs/`, `CLAUDE.md`, `CONTEXT.md`, and `e2e-state.py` into the
+   workspace root. Either way, satisfy the pre-install self-check above first.
 2. Review `.claude/chatbi-harness.json` without inserting machine paths, credentials, or invented
    organization facts.
 3. If external roots or local CLIs are needed, copy the local example only after the user confirms

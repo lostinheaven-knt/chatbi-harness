@@ -51,6 +51,8 @@ rsync -a "$DEV/harness/docs/harness/" "$DEST/docs/harness/"
 # --- root files ---
 cp "$DEV/harness/CLAUDE.md" "$DEV/harness/CONTEXT.md" "$DEV/harness/e2e-state.py" "$DEST/"
 cp "$DEV/harness/product-README.md" "$DEST/README.md"
+cp "$DEV/harness/install.sh" "$DEST/install.sh"
+chmod +x "$DEST/install.sh"
 
 # --- validate ---
 echo "=== product built. Validating... ==="

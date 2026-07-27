@@ -12,8 +12,10 @@ fabricate, or cross the Workspace boundary.
 
 ## Install
 
-1. Copy this directory's `.claude/`, `docs/`, `CLAUDE.md`, `CONTEXT.md`, and
-   `e2e-state.py` into your Warehouse Workspace root.
+1. Run `./install.sh <workspace-root>` to copy `.claude/`, `docs/`, `CLAUDE.md`,
+   `CONTEXT.md`, and `e2e-state.py` into your Warehouse Workspace root and verify
+   a Python 3.10+ binding outside the boundary (see `docs/harness/installation.md`
+   for the pre-install self-check). Manual copy also works.
 2. Set a Python 3.10+ binding (the harness uses `@dataclass(slots=True)`):
    ```sh
    export CHATBI_PYTHON=/opt/homebrew/bin/python3   # homebrew macOS; or /usr/bin/python3 if 3.10+
