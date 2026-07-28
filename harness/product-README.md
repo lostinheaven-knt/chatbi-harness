@@ -1,6 +1,6 @@
 # ChatBI Harness
 
-A governed Claude Code harness for an **Agent-operated Warehouse**. Six slash
+A governed Claude Code harness for an **Agent-operated Warehouse**. Seven slash
 commands, 46 enforced rules, deterministic fail-closed gates, and an independent
 adversarial reviewer - so an agent can draft data answers but cannot self-certify,
 fabricate, or cross the Workspace boundary.
@@ -27,12 +27,18 @@ fabricate, or cross the Workspace boundary.
    hooks only in a throwaway E2E workspace** - a blocking hook hot-reloads
    `settings.json` and can deadlock a dev session.
 4. Run `/chatbi-init` to produce capability + production-readiness evidence.
+5. Run `/chatbi-bootstrap` to scaffold a from-zero local Warehouse (MySQL-only
+   v1): it writes local config (`cli_adapters.mysql` + optional `path_binding`),
+   appends `cli:mysql` to shared `adapters.query`, creates the `dw` database
+   (non-destructive), introspects the source schema, and emits a
+   `.chatbi/bootstrap/source_inventory.json` hand-off for `/chatbi-maintain-model`.
 
 ## Commands
 
 | Command | Purpose |
 | --- | --- |
 | `/chatbi-init` | install / diagnose |
+| `/chatbi-bootstrap` | scaffold local Warehouse (config + dw + inventory, MySQL-only v1) |
 | `/chatbi-analyze` | governed 5-layer analysis -> provenance footer |
 | `/chatbi-maintain-model` | model change + impact sync gate |
 | `/chatbi-maintain-knowledge` | knowledge-reference authoring + lint |

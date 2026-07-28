@@ -964,3 +964,32 @@ Harness 本身只有在以下条件全部满足后才可宣称 v1 完成：
 - 真实文件清单、feature-flow、规则矩阵和测试报告一致；
 - `docs/technical-design.md` 已根据实际实现进入 AS_BUILT 状态；
 - 组织 PII、所有者、连接和评测门槛仍缺失时，明确标为无法生产认证，而不是用 Fixture 替代。
+
+---
+
+## 20. Legacy 增强：`/chatbi-bootstrap`（AS_BUILT 2026-07-27）
+
+在 v1 AS_BUILT 基线（§§1-19，2026-07-24）之后，新增第 7 个 slash command
+`/chatbi-bootstrap` 作为 legacy 增强，以闭合"从零起建 Warehouse"的缺口。它脚手架本地
+Warehouse - 共享/本地配置 + `dw` 数据库 + dbt-mysql 项目结构 + 源库 schema 清单 - 使 agent
+随后可通过 `/chatbi-maintain-model` 构建 ODS/DWD/DWS。
+
+**状态：AS_BUILT。** 已实现并对真实 MySQL 验证（`127.0.0.1:3306`，`public` schema，
+introspect 出 125 张表；`dw` 以非破坏性 `CREATE DATABASE IF NOT EXISTS` 创建）。563 测试全绿
+（533 基线 + 30 新增），`./build-product.sh` 干净，domain-contract gate 通过，design-vs-as-built
+评估 CONVERGED（0 BLOCKER / 0 MAJOR，3 个文档级 nit 已修）。
+
+**信任边界：仅 INFRA SETUP** - 镜像 `/chatbi-init` 的 setup 角色，不创建受治理产物。bootstrap
+MAY：写本地配置、向共享 `adapters.query` 追加一个 `cli:mysql` 条目（幂等）、
+`CREATE DATABASE IF NOT EXISTS dw`、introspect 源库 schema、scaffold 项目目录、写
+`source_inventory.json` 交接件。MUST NOT：创建受治理模型、批准指标、发布或运行破坏性迁移
+（SEM-003 边界不变）。
+
+**46 规则不变。** bootstrap 引用 8 条既有规则（SCOPE-001、SCOPE-002、SEC-001、SEC-003、
+PORT-001、SEM-003、DOC-001、HOOK-004），不新增任何规则；`validate_domain_contract` 持续通过。
+
+**细节：** 完整设计 + as-built 和解说明见 `docs/technical-design-bootstrap.md`（AS_BUILT，含
+§10 reconciliation：8→9 步细化、3 个 nit 修复、live smoke 证据、563 测试全绿、build 干净）。
+as-built 调用链见 `docs/feature-flow-bootstrap-v1.md`；design-vs-as-built 评估见
+`docs/optimization-checklist-bootstrap-v1.md`（CONVERGED）。MySQL-only v1；非 MySQL 引擎、批量
+ODS DDL、live MySQL 单测、live hook 注册均仍在 v1 范围外。

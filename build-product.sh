@@ -32,9 +32,10 @@ cp "$DEV/harness/.claude/chatbi-harness.json" \
    "$DEV/harness/.claude/chatbi-harness.example.json" \
    "$DEV/harness/.claude/chatbi-harness.local.example.json" "$DEST/.claude/"
 
-# --- commands: the 6 chatbi commands (NOT orchestrate.md) ---
+# --- commands: the 7 chatbi commands (NOT orchestrate.md) ---
 for c in chatbi-init chatbi-analyze chatbi-maintain-model \
-         chatbi-maintain-knowledge chatbi-evaluate chatbi-correction; do
+         chatbi-maintain-knowledge chatbi-evaluate chatbi-correction \
+         chatbi-bootstrap; do
   cp "$DEV/harness/.claude/commands/$c.md" "$DEST/.claude/commands/"
 done
 
@@ -59,7 +60,7 @@ echo "=== product built. Validating... ==="
 ( cd "$DEST" && PYTHONPATH=.claude/lib python3 -B -c \
     "import chatbi_harness.evidence, chatbi_harness.impact, chatbi_harness.evaluator, \
      chatbi_harness.knowledge, chatbi_harness.harness_state, chatbi_harness.policy, \
-     chatbi_harness.adapters; print('import OK')" )
+     chatbi_harness.adapters, chatbi_harness.bootstrap; print('import OK')" )
 echo "--- canary sweep (no machine path / secret) ---"
 rg -n '/Users/|/home/[a-z]|BEGIN .*PRIVATE KEY|sk-[A-Za-z0-9]{20}' "$DEST" 2>/dev/null \
     | grep -vE 'fixtures/config/embedded-secret|fixtures/codebases|malicious|prohibition|example' \

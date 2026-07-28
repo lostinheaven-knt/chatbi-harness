@@ -1,5 +1,10 @@
 """Deterministic primitives shared by the ChatBI harness."""
 
+from .bootstrap import (
+    SourceInventory,
+    build_mysql_adapter_spec,
+    merge_local_config,
+)
 from .config import EffectiveConfig, load_effective_config
 from .diagnostics import (
     CapabilitySnapshot,
@@ -19,8 +24,11 @@ __all__ = [
     "GateDecision",
     "GateError",
     "PortablePathReference",
+    "SourceInventory",
+    "build_mysql_adapter_spec",
     "fail_closed",
     "load_effective_config",
+    "merge_local_config",
     "probe_local_capabilities",
     "resolve_path_reference",
     "run_init_diagnostic",

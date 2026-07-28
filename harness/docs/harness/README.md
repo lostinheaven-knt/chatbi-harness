@@ -94,6 +94,46 @@ process has NOT yet triggered this project's SessionStart Hook; login,
 keychain, sandbox, and managed policy are not verified locally. See
 `./compatibility.md` section NOT YET EXERCISED and PRODUCTION BLOCKER.
 
+### 2.4 `/chatbi-bootstrap` command (lib surface VERIFIED OFFLINE; live MySQL NOT YET EXERCISED)
+
+`.claude/commands/chatbi-bootstrap.md` is the slash command; its runbook is
+`.claude/skills/chatbi-bootstrap/SKILL.md`. It scaffolds a from-zero local
+Warehouse (MySQL-only v1, dbt-mysql layout) so the agent can then build
+ODS/DWD/DWS via `/chatbi-maintain-model`. It is **INFRA SETUP only**: it does
+not create governed models, approve metrics, publish, or run destructive
+migrations (SEM-003). The 46-rule count is unchanged; bootstrap cites 8
+existing rules (SCOPE-001, SCOPE-002, SEC-001, SEC-003, PORT-001, SEM-003,
+DOC-001, HOOK-004) and adds none.
+
+The deterministic lib surface lives in
+`.claude/lib/chatbi_harness/bootstrap.py`:
+
+- `build_mysql_adapter_spec(host, port, user, *, database,
+  credential_env_name=None)` - builds the `cli_adapters.mysql` spec (argv +
+  `credential_env_names`). Never includes a password value; raises `GateError`
+  (HOOK-004/SEC-003) on bad input.
+- `merge_local_config(existing, *, path_bindings=None, cli_adapters=None)` -
+  merges local config preserving existing keys; drops smuggled shared/protected
+  policy (SEM-003/HOOK-004).
+- `SourceInventory` (frozen-slots dataclass + nested `SourceTable` /
+  `SourceColumn`) - the source schema inventory hand-off written to
+  `.chatbi/bootstrap/source_inventory.json` for `/chatbi-maintain-model`.
+
+The CliAdapter JSON-stdin vs mysql SQL-stdin gap is resolved via **option (a)**:
+for each SQL operation the runbook constructs a per-operation `CliAdapter` whose
+argv embeds `--execute=<SQL>` (single statement, no `;`, no shell
+metacharacters). The confirmed absolute `mysql` realpath is the
+single-element `cli_allowlist` (mirrors `/chatbi-init`'s `claude_executable`
+confirmation); `mysql` is never executed from unconfirmed PATH.
+
+Evidence status: `tests/harness/test_bootstrap.py` exercises the deterministic
+lib surface (30 cases: spec shape, validation, merge semantics, secret
+rejection, `SourceInventory` shape, spec round-trip through
+`load_effective_config`). Live MySQL execution (`CREATE DATABASE`,
+`INFORMATION_SCHEMA` introspection) is NOT YET EXERCISED in CI; the runbook
+covers the live path for manual E2E. StarRocks / other MySQL-protocol engines
+are unverified for v1.
+
 ## 3. Later-cycle capability status
 
 These capabilities are routed in the root contract but NOT implemented in

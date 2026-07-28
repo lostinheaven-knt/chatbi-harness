@@ -56,6 +56,44 @@ modify your shell rc; that edit is yours to make.
 6. Resolve every `BLOCKED` or `WARN` check using its recovery action. Cycle 1 never claims
    production readiness, including when the offline diagnostic reports `PASS`.
 
+## Bootstrap a from-zero Warehouse (`/chatbi-bootstrap`, MySQL-only v1)
+
+After `/chatbi-init` reports a clean installation, `/chatbi-bootstrap` scaffolds a
+from-zero local Warehouse so the agent can then build ODS/DWD/DWS via
+`/chatbi-maintain-model`. It is **MySQL-only v1** and **INFRA SETUP only** - it
+does not create governed models, approve metrics, publish, or run destructive
+migrations (SEM-003).
+
+What it does:
+
+- Writes `.claude/chatbi-harness.local.json` with `cli_adapters.mysql` (argv +
+  `credential_env_names`) and an optional `path_binding` for a declared Business
+  Codebase `path_ref`. The password is an env var NAME (e.g. `MYSQL_PWD`) or
+  empty for local no-password root; never a value (SEC-003).
+- Appends `cli:mysql` to shared `adapters.query` (idempotent, if absent). This is
+  the one shared-config write.
+- Creates the `dw` database via `CREATE DATABASE IF NOT EXISTS dw`
+  (non-destructive; warns if `dw` already has tables).
+- Introspects the source `public` schema via `INFORMATION_SCHEMA` and writes
+  `.chatbi/bootstrap/source_inventory.json` (the hand-off to
+  `/chatbi-maintain-model`).
+- Scaffolds `dbt_project.yml` + `models/{ods,dwd,dws,dim}/` (empty) + a stub
+  `docs/org/data-warehouse-blueprint.md`.
+
+Before running it, confirm the exact absolute `mysql` executable path (e.g.
+`/usr/local/mysql/bin/mysql` or an Homebrew `mysql-client` path). This mirrors
+the `CHATBI_PYTHON` / `claude_executable` confirmation pattern: the confirmed
+realpath is the single-element `cli_allowlist` passed to `resolve_executable`.
+Do NOT execute `mysql` from unconfirmed inherited `PATH` - an empty allowlist
+means the CLI adapter chain STOPs fail-closed (SEC-001/PORT-001/HOOK-004).
+
+Evidence status: the deterministic lib surface (`build_mysql_adapter_spec`,
+`merge_local_config`, `SourceInventory`) is **VERIFIED OFFLINE** by
+`tests/harness/test_bootstrap.py`. Live MySQL execution (`CREATE DATABASE`,
+`INFORMATION_SCHEMA` introspection) is **NOT YET EXERCISED** in CI; the runbook
+at `.claude/skills/chatbi-bootstrap/SKILL.md` covers the live path for manual
+E2E. StarRocks / other MySQL-protocol engines are unverified for v1.
+
 ## Evidence status
 
 - **VERIFIED OFFLINE:** Python tests exercise the real domain contract, shared/local config loader,
