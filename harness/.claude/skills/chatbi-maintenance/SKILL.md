@@ -9,6 +9,20 @@ Maintenance runbook for governed models and semantic definitions. A model change
 is delivered only after an impact manifest is generated and all affected assets
 are synced (DOC-001/004).
 
+## 0. Tooling (read before running dbt)
+
+Before invoking `dbt run` / `dbt test` / any dbt command (Step 3 candidate
+verification, Step 4 sync gate), read `docs/org/data-warehouse-blueprint.md`
+§ Tooling for the environment-specific dbt executable path and MySQL connection.
+dbt's Python runtime is separate from the harness `CHATBI_PYTHON` - on some
+hosts dbt requires a different Python (e.g. 3.12 vs 3.14 where `mashumaro`
+crashes), so an arbitrary `dbt` found on PATH may be the wrong one. Use the dbt
+named in the Tooling section, not one discovered on PATH. If the Tooling section
+is absent or does not name a dbt executable, STOP and ask the operator which dbt
+to use - do not guess from PATH (unconfirmed PATH entries are not execution
+authority, PORT-001 spirit). The Tooling section is operator guidance, not
+governed knowledge (DOC-001 does not apply to it).
+
 ## 1. Classify the change
 
 `change_kind` ∈ model/column/semantic/reference/Skill/downstream/eval; target is
