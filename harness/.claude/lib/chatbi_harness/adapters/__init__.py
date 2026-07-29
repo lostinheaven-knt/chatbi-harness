@@ -110,9 +110,12 @@ def resolve_executable(argv0: str, allowlist: tuple[str, ...]) -> Path | None:
     """Resolve ``argv0`` to an allowlisted absolute executable path.
 
     Bare names are resolved via a safe system PATH; the resolved realpath must
-    be a regular executable file whose realpath is in ``allowlist``. Returns
-    None if the executable cannot be found or is not approved. The allowlist is
-    the security boundary; PATH resolution only produces a candidate.
+    be a regular executable file whose realpath is in ``allowlist``. A bare name
+    not on the safe system PATH (e.g. a homebrew tool in /opt/homebrew/bin,
+    outside os.defpath) may also resolve directly to an allowlist entry whose
+    basename matches - the allowlist is the security boundary, so this only
+    resolves to an already-approved absolute path. Returns None if the executable
+    cannot be found or is not approved.
     """
     if not argv0:
         return None
@@ -122,7 +125,12 @@ def resolve_executable(argv0: str, allowlist: tuple[str, ...]) -> Path | None:
         else:
             candidate = shutil.which(argv0, path=_SAFE_SYSTEM_PATH or None)
             if candidate is None:
-                return None
+                # Bare name not on the safe system PATH: try matching it
+                # directly to an allowlist entry by basename. Only already-
+                # approved absolute paths are considered (the allowlist is the
+                # security boundary); this lets homebrew/non-defpath tools be
+                # approved without widening the system PATH.
+                return _resolve_bare_from_allowlist(argv0, allowlist)
         resolved = Path(candidate).resolve(strict=True)
     except (OSError, RuntimeError):
         return None
@@ -141,6 +149,28 @@ def resolve_executable(argv0: str, allowlist: tuple[str, ...]) -> Path | None:
     if str(resolved) not in allowlist_real:
         return None
     return resolved
+
+
+def _resolve_bare_from_allowlist(
+    argv0: str, allowlist: tuple[str, ...]
+) -> Path | None:
+    """Resolve a bare name to an allowlisted executable by basename match.
+
+    Only already-approved absolute allowlist entries are considered; the system
+    PATH is not consulted. Returns the resolved realpath of the first matching
+    regular executable file, or None.
+    """
+    for entry in allowlist:
+        if Path(entry).name != argv0:
+            continue
+        try:
+            resolved = Path(entry).resolve(strict=True)
+            mode = resolved.stat(follow_symlinks=False).st_mode
+        except (OSError, RuntimeError):
+            continue
+        if stat.S_ISREG(mode) and os.access(resolved, os.X_OK):
+            return resolved
+    return None
 
 
 def build_cli_env(credential_env_names: tuple[str, ...] = ()) -> dict[str, str]:

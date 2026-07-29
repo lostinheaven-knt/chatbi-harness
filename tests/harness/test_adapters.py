@@ -470,6 +470,29 @@ class ResolveExecutableTests(unittest.TestCase):
         # "true" exists in the safe PATH but is not in the empty allowlist.
         self.assertIsNone(resolve_executable("true", ()))
 
+    def test_bare_name_matched_to_allowlist_entry_off_defpath(self) -> None:
+        # A bare name not on the safe system PATH (/bin:/usr/bin) but present
+        # as an absolute allowlist entry (e.g. homebrew /opt/homebrew/bin/mysql,
+        # which is outside os.defpath) resolves to the allowlisted path. The
+        # allowlist is the security boundary; this only resolves to an
+        # already-approved path.
+        script = self._make_executable(name="fakebrewcli")
+        resolved = resolve_executable("fakebrewcli", (str(script),))
+        self.assertEqual(resolved, script)
+
+    def test_bare_name_allowlist_basename_mismatch_rejected(self) -> None:
+        # A bare name does not resolve to an allowlist entry whose basename
+        # differs; no PATH fallback, no partial match.
+        script = self._make_executable(name="othercli")
+        self.assertIsNone(resolve_executable("fakebrewcli", (str(script),)))
+
+    def test_bare_name_allowlist_non_executable_rejected(self) -> None:
+        # A bare name matching an allowlist entry that is not an executable
+        # regular file is rejected.
+        plain = self.directory / "plaincli"
+        plain.write_text("not executable", encoding="utf-8")
+        self.assertIsNone(resolve_executable("plaincli", (str(plain),)))
+
 
 # --------------------------------------------------------------------------
 # build_cli_env
