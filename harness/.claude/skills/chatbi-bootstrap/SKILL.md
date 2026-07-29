@@ -185,13 +185,22 @@ clobber) if `dw` already has tables (Risk #4).
    (created EMPTY - bootstrap does not generate ODS DDL, out of scope §7).
 2. Stub `docs/org/data-warehouse-blueprint.md` if absent (structure/headers
    only; bootstrap does not author governed knowledge - DOC-001). The stub MUST
-   include a `## Tooling` section header noting that the operator fills
-   env-specific executable paths there (dbt executable path, MySQL CLI/connection,
-   dbt profile name) - this is operator guidance, NOT governed knowledge, and
-   `/chatbi-maintain-model` reads it before running dbt (see
-   `chatbi-maintenance/SKILL.md` § 0). Leave the paths as placeholders for the
-   operator to confirm; do not invent values. Governed references stay
-   co-located with models and routed through `/chatbi-maintain-knowledge`.
+   include:
+   - a `## Tooling` section header noting that the operator fills
+     env-specific executable paths there (dbt executable path, MySQL CLI/connection,
+     dbt profile name) - this is operator guidance, NOT governed knowledge, and
+     `/chatbi-maintain-model` reads it before running dbt (see
+     `chatbi-maintenance/SKILL.md` § 0). Leave the paths as placeholders for the
+     operator to confirm; do not invent values.
+   - a `## Metrics` section header (empty placeholder) where the operator/domain
+     owner records the metric design intent (which tables are facts/dimensions,
+     which columns are numerators/denominators, the function axis). This is
+     design intent that seeds later governed semantic-layer definitions
+     (change_kind=semantic, SEM-003); `/chatbi-maintain-model` reads it when
+     building ODS/DWD so it does not re-derive column roles from each request.
+     Leave it empty for the operator to fill; do not invent metrics.
+   Governed references stay co-located with models and routed through
+   `/chatbi-maintain-knowledge`.
 3. These are candidate writes to the Workspace; `workspace.allow_candidate_writes`
    must be `true` (`chatbi-harness.schema.json:38`). Do not write outside the
    Workspace (SCOPE-001).

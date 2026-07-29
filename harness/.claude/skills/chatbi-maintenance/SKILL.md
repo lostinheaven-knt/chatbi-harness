@@ -43,6 +43,14 @@ For each affected asset with `change_required=True`, produce the candidate
 change (code/metadata/reference/Skill/test/eval). Mark `synced=True` only after
 the change is applied.
 
+Before drafting an ODS/DWD/DWS model, read
+`docs/org/data-warehouse-blueprint.md` § Metrics for the design intent (which
+tables are facts/dimensions, which columns are numerators/denominators, the
+function axis). This lets you annotate column roles (e.g. "denominator source")
+in the model reference without the operator re-stating them per request. If the
+Metrics section is absent or empty, ask the operator for the design intent - do
+not invent column roles.
+
 ## 4. Sync gate (DOC-004)
 
 - Any `change_required` asset with `synced=False` -> blocking drift -> the Cycle
