@@ -236,7 +236,7 @@ bootstrap 只 scaffold 了 `dbt_project.yml` 骨架。建模型前补 profiles:
 ```sh
 mkdir -p ~/.dbt
 cat > ~/.dbt/profiles.yml <<'YML'
-chatbi_dw:
+dw:
   target: dev
   outputs:
     dev:
@@ -250,7 +250,9 @@ chatbi_dw:
 YML
 ```
 
-然后检查 `dbt_project.yml` 里的 `profile: chatbi_dw`(没有就加)。
+> profile 名必须和 `dbt_project.yml` 里的 `profile:` 一致。bootstrap scaffold 出的
+> `dbt_project.yml` 是 `profile: dw`(project name 也叫 `dw`),所以 profiles.yml 顶层
+> 用 `dw:`。**别用 `chatbi_dw`**,否则 `dbt debug` 报 `Could not find profile named 'dw'`。
 
 **跑 dbt 前先激活 venv_dbt**(见 1.5;dbt 不能用 3.14):
 `source /Users/admin/Downloads/workspace/venv_dbt/bin/activate`
@@ -391,6 +393,7 @@ agent 走 5 层流:
 | `resolve_executable` fail-closed | cli_allowlist 空 | Step 2 没确认 mysql 路径 |
 | `dbt --version` 崩 `mashumaro.exceptions.UnserializableField` | dbt 装进了 Python 3.14 venv | 改用 venv_dbt(Python 3.12,见 1.5);dbt 不能用 3.14 |
 | dbt `dbt debug` 连不上 | profiles.yml 密码/端口错 | 确认 server/port/schema=dw/username=root/password="" |
+| dbt `Could not find profile named 'dw'` | profiles.yml 顶层 profile 名 ≠ dbt_project.yml 的 `profile:` | profiles.yml 用 `dw:`(scaffold 的 dbt_project.yml 是 `profile: dw`),见 4.2 |
 | `CREATE DATABASE` 失败 | MySQL 没起或 root 权限 | `brew services restart mysql` |
 | `/chatbi-analyze` 降级到 T2/T3 | T1 指标没建或没 approve | 先完成 Part 5.3(SEM-003 审批) |
 
