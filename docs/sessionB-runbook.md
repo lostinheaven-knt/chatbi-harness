@@ -394,6 +394,7 @@ agent 走 5 层流:
 | `dbt --version` 崩 `mashumaro.exceptions.UnserializableField` | dbt 装进了 Python 3.14 venv | 改用 venv_dbt(Python 3.12,见 1.5);dbt 不能用 3.14 |
 | dbt `dbt debug` 连不上 | profiles.yml 密码/端口错 | 确认 server/port/schema=dw/username=root/password="" |
 | dbt `Could not find profile named 'dw'` | profiles.yml 顶层 profile 名 ≠ dbt_project.yml 的 `profile:` | profiles.yml 用 `dw:`(scaffold 的 dbt_project.yml 是 `profile: dw`),见 4.2 |
+| dbt run 报源表找不到 / source 报 `database` 不允许 | dbt-mysql adapter 的 source 用 `database: public` 不生效--MySQL 的"库"在 dbt 里映射成 `schema`,adapter 不允许 source 单独设 `database` | schema.yml 的 source 改成 `schema: public`(去掉 `database:`);target 侧同理 `schema: dw`。见 4.3 agent 已修的 ods_agent_session 案例 |
 | `CREATE DATABASE` 失败 | MySQL 没起或 root 权限 | `brew services restart mysql` |
 | `/chatbi-analyze` 降级到 T2/T3 | T1 指标没建或没 approve | 先完成 Part 5.3(SEM-003 审批) |
 
