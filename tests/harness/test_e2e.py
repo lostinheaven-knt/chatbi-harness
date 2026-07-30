@@ -585,7 +585,7 @@ class MaintenanceKnowledgeE2ETests(unittest.TestCase):
 
 
 class EvaluationE2ETests(unittest.TestCase):
-    """Cycle 5: evaluation suite + six-Command routing + production-no-connection
+    """Cycle 5: evaluation suite + eight-Command routing + production-no-connection
     STOP + ablation. Ground truth is isolated; the run record carries FBK-003.
     Real evaluation runtime (real adapter/reviewer) is a Task 06 E2E gate."""
 
@@ -594,8 +594,10 @@ class EvaluationE2ETests(unittest.TestCase):
         data = json.loads((EVAL_SUITE_DIR / f"{name}.json").read_text())
         return data["cases"]
 
-    def test_six_commands_exist_and_route(self) -> None:
-        commands = ("chatbi-init.md", "chatbi-analyze.md",
+    def test_eight_commands_exist_and_route(self) -> None:
+        commands = ("chatbi-init.md", "chatbi-bootstrap.md",
+                    "chatbi-build-from-requirement.md",
+                    "chatbi-analyze.md",
                     "chatbi-maintain-model.md", "chatbi-maintain-knowledge.md",
                     "chatbi-evaluate.md", "chatbi-correction.md")
         for cmd in commands:

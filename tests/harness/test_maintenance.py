@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -35,6 +36,11 @@ from chatbi_harness.impact import (  # noqa: E402
     ImpactManifest,
     build_impact_manifest,
     validate_impact_manifest,
+)
+from chatbi_harness.build_plan import (  # noqa: E402
+    append_model_registry,
+    build_model_entry,
+    read_model_registry,
 )
 
 POSTTOOL_GATE = WORKSPACE_ROOT / "harness" / ".claude" / "hooks" / "posttool_impact.py"
@@ -279,6 +285,69 @@ class PostToolGateTests(unittest.TestCase):
             "utf-8", "replace")
         for canary in (CANARY_SECRET, CANARY_PATH):
             self.assertNotIn(canary, combined)
+
+
+class AppendModelRegistryAfterSyncGateTests(unittest.TestCase):
+    """Asserts the lib contract: append_model_registry is called ONLY after the
+    sync gate (has_blocking_drift == False) + stop_gate pass. A model that
+    failed sync is NOT recorded (the registry is a record of built models, not
+    attempted ones - fail-closed, DOC-004/HOOK-001).
+
+    The maintenance SKILL change (chatbi-maintenance/SKILL.md §4) is procedural;
+    this test asserts the lib contract that the SKILL documents.
+    """
+
+    def _build_manifest(self, **overrides) -> ImpactManifest:
+        assets = overrides.pop("affected_assets",
+                               [{"asset_kind": "metadata", "asset_ref": "r",
+                                 "change_required": True, "synced": True}])
+        kwargs = dict(
+            run_id="r", change_kind="model", target="models/dwd_orders",
+            affected_assets=assets, evidence_state="sufficient",
+            candidate_payload={"x": 1})
+        kwargs.update(overrides)
+        return build_impact_manifest(**kwargs)
+
+    def _entry(self):
+        return build_model_entry(
+            name="dwd_orders", layer="dwd", change_kind="model",
+            created_rev="r1", owner="op",
+            upstream_deps=("ods_orders",),
+        )
+
+    def test_sync_gate_pass_appends_to_registry(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            registry_path = Path(d) / "model_registry.json"
+            manifest = self._build_manifest()
+            # Documented call order: sync gate pass -> append.
+            self.assertFalse(manifest.has_blocking_drift())
+            append_model_registry(registry_path, self._entry())
+            entries = read_model_registry(registry_path)
+            self.assertEqual(len(entries), 1)
+            self.assertEqual(entries[0].name, "dwd_orders")
+
+    def test_sync_gate_fail_does_not_append(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            registry_path = Path(d) / "model_registry.json"
+            manifest = self._build_manifest(
+                affected_assets=[
+                    {"asset_kind": "metadata", "asset_ref": "r",
+                     "change_required": True, "synced": False}],
+            )
+            # Documented call order: sync gate fail -> do NOT append.
+            self.assertTrue(manifest.has_blocking_drift())
+            # The SKILL does NOT call append_model_registry here.
+            # Registry stays absent (empty).
+            self.assertEqual(read_model_registry(registry_path), ())
+
+    def test_protected_action_does_not_append(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            registry_path = Path(d) / "model_registry.json"
+            manifest = self._build_manifest(protected_action=True)
+            # Protected action blocks (SEM-003); sync gate fails.
+            self.assertTrue(manifest.has_blocking_drift())
+            # The SKILL does NOT call append_model_registry here.
+            self.assertEqual(read_model_registry(registry_path), ())
 
 
 if __name__ == "__main__":

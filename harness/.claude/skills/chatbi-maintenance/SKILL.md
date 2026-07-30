@@ -51,6 +51,16 @@ in the model reference without the operator re-stating them per request. If the
 Metrics section is absent or empty, ask the operator for the design intent - do
 not invent column roles.
 
+Also read `docs/org/data-warehouse-blueprint.md` § Layers for the cross-layer
+dependency rule (which layers a model may depend on: ADS -> DWS/DIM, DWS ->
+DWD/DIM, DWD -> ODS/DIM). This lets you validate the model's upstream_deps do
+not cross layers illegally before drafting. If the Layers section is absent or
+has no rule for the model's layer, ask the operator for the cross-layer rule -
+do not invent cross-layer rules (META-003: declarative knowledge lives in the
+blueprint, not the SKILL; PORT-001). A legitimate cross-layer exception must be
+explicit: record it in `ModelEntry.cross_layer_exception` with a reason and the
+approver (DOC-002), not silently.
+
 ## 4. Sync gate (DOC-004)
 
 - Any `change_required` asset with `synced=False` -> blocking drift -> the Cycle
@@ -58,6 +68,22 @@ not invent column roles.
 - All synced + affected tests/evals exist + evidence sufficient + no P0 failure
   -> `stop_gate` passes.
 - Uncertain sync completeness -> fail-closed; `stop_gate` fails.
+
+After the sync gate passes AND `stop_gate` passes, record the built model in the
+model registry by calling
+`chatbi_harness.build_plan.append_model_registry(
+   Path(".chatbi/model_registry.json"), ModelEntry(...))`
+with the model name (logical alias), layer, upstream_deps, change_kind,
+created_rev, owner, and `cross_layer_exception` if applicable. This is the
+contract surface `/chatbi-build-from-requirement` reads in Step 1
+(`read_model_registry`). It is **derived evidence** (a maintain-model
+byproduct, like `source_inventory.json` is bootstrap's byproduct), NOT governed
+config - it does NOT enter `chatbi-harness.schema.json`. The append happens
+ONLY after sync gate + stop_gate pass (DOC-004/HOOK-001): a model that failed
+sync is NOT recorded (the registry is a record of built models, not attempted
+ones - fail-closed). Use `chatbi_harness.build_plan.build_model_entry(...)` to
+construct the `ModelEntry` (it validates the alias/layer/change_kind and
+sanitizes text fields before persisting).
 
 ## 5. PostToolUse record (not undo)
 

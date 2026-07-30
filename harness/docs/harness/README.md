@@ -134,6 +134,42 @@ rejection, `SourceInventory` shape, spec round-trip through
 covers the live path for manual E2E. StarRocks / other MySQL-protocol engines
 are unverified for v1.
 
+### 2.5 `/chatbi-build-from-requirement` command (lib surface VERIFIED OFFLINE; live chaining NOT YET EXERCISED)
+
+`.claude/commands/chatbi-build-from-requirement.md` is the slash command; its
+runbook is `.claude/skills/chatbi-build/SKILL.md`. It is an **orchestrator
+trust layer** that bridges `/chatbi-analyze` (query, stops on "needs new
+model") and `/chatbi-maintain-model` (single-model build): it derives a
+DWD/DWS/ADS build plan from a requirement + Warehouse state + blueprint, chains
+`/chatbi-maintain-model` per model in dependency order, routes protected points
+to the human, and hands off to `/chatbi-analyze` once models exist. It does NOT
+author governed content, answer, or approve (SEM-003/META-008). The 46-rule
+count is unchanged.
+
+The deterministic lib surface lives in
+`.claude/lib/chatbi_harness/build_plan.py`:
+
+- `ModelEntry` / `HumanApproval` / `CrossLayerException` / `LayerRule` /
+  `BuildPlan` - frozen-slots dataclasses mirroring `SourceInventory`.
+- `build_model_entry(...)` - factory that validates alias/layer/change_kind +
+  sanitizes text fields (Q5, SEC-003) before constructing.
+- `read_model_registry(path)` - reads `.chatbi/model_registry.json`; absent ->
+  `()` (first build); present -> re-validates each entry (fail-closed on
+  tampered evidence, Q3).
+- `validate_build_plan(plan, layer_rules, known_models=frozenset())` - pure
+  shape validation: topology order + SCOPE-001 cross-plan-boundary (open point
+  6: dep not in plan or registry -> GateError) + alias + SEM-003 consistency +
+  Q1 extend-source gate + schema shape (HOOK-004).
+- `validate_layer_dependency(plan, layer_rules)` - layer-permission matrix
+  (Q6b, independent of topology check).
+- `append_model_registry(path, entry)` - atomic temp+rename append (0o600),
+  idempotent on `(name, created_rev)`.
+
+Evidence status: `tests/harness/test_build_plan.py` exercises the deterministic
+lib surface. Live derivation (agent reasoning of join/aggregate logic) +
+maintain-model chaining + live `/chatbi-analyze` hand-off are NOT YET
+EXERCISED in CI; the runbook covers the live path for manual E2E.
+
 ## 3. Later-cycle capability status
 
 These capabilities are routed in the root contract but NOT implemented in

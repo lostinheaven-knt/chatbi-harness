@@ -993,3 +993,50 @@ PORT-001、SEM-003、DOC-001、HOOK-004），不新增任何规则；`validate_d
 as-built 调用链见 `docs/feature-flow-bootstrap-v1.md`；design-vs-as-built 评估见
 `docs/optimization-checklist-bootstrap-v1.md`（CONVERGED）。MySQL-only v1；非 MySQL 引擎、批量
 ODS DDL、live MySQL 单测、live hook 注册均仍在 v1 范围外。
+
+## 21. Legacy 增强：`/chatbi-build-from-requirement`（AS_BUILT 2026-07-29）
+
+在 v1 AS_BUILT 基线（§§1-19）+ 第 7 命令 `/chatbi-bootstrap`（§20）之后，新增第 8 个
+slash command `/chatbi-build-from-requirement` 作为 legacy 增强，闭合 `/chatbi-analyze`
+的"需要新模型即 STOP"缺口（`chatbi-analyze.md` Stop-conditions：T1 覆盖无法确定时 STOP）。
+它是**编排器信任层**（镜像 `/chatbi-bootstrap` 的窄信任层形态）：从需求 + DW 状态 + 蓝图
+推导 DWD/DWS/ADS 建造计划，按依赖顺序链式调用 `/chatbi-maintain-model`，把受保护点
+（指标审批/访问策略/发布/破坏性迁移，SEM-003；扩源 SCOPE-001/SEC-001/RAW-003）路由给人，
+模型就位后交接给 `/chatbi-analyze`，使 analyze 不再在 T1 覆盖上 STOP。
+
+**4 步流程：** (1) 读蓝图 §Source/§Metrics/§Layers/§Tooling + `read_source_inventory` +
+`read_model_registry` + `select_adapter` 探 T1 覆盖；(2) agent 推导建造计划
+（ODS->DWD->DWS->ADS，join/aggregate 是 agent 推理**非确定性 lib**），调
+`validate_build_plan` + `validate_layer_dependency`（HOOK-004 fail-closed）；(3) 按依赖顺序
+链 `/chatbi-maintain-model`，每个受保护点人批，计划经 `harness_state.write_state` 持久化
+可恢复，sync gate 通过后 `append_model_registry`；(4) 建 ADS（若需）+ 交接 `/chatbi-analyze`。
+
+**关键确定性 lib** `build_plan.py`（薄层，镜像 `impact.py` 纪律，不推导只读+校验+追加）：
+`BuildPlan`/`ModelEntry`/`LayerRule` frozen-slots dataclass；`build_model_entry` 工厂
+（构造期 `_sanitize_text`，Q5/SEC-003）；`read_model_registry`（absent -> `()`，tampered ->
+`GateError`，Q3）；`validate_build_plan(plan, layer_rules, known_models=frozenset())`（拓扑序 +
+SCOPE-001 跨计划边界，open point 6；`known_models` 来自 registry）；`validate_layer_dependency`
+（层权限矩阵，Q6b，独立于拓扑检查 Q6a）；`append_model_registry`（原子 temp+rename `0o600`，
+`(name,created_rev)` 幂等，仅 sync gate 通过后调用，DOC-004/HOOK-001）。配套 `bootstrap.py`
+增量 introspect（`read_source_inventory` + `merge_source_inventories`，扩源人批后合并新表）；
+`chatbi-maintenance/SKILL.md` §3 读蓝图 `## Layers` + §4 sync gate 通过后写 registry；
+`chatbi-bootstrap/SKILL.md` Step 8 创建 `## Layers` stub（声明式跨层规则占位，operator 填，
+META-003/PORT-001）。Schema `build-plan.schema.json` 是单一形状契约。
+
+**治理边界不变。** 46 规则不增删改；`validate_domain_contract` 持续 PASS。受保护点人批
+（SEM-003 4 个 protected_actions + 扩源 flag）；join/aggregate 推导是 agent 推理（无推导
+lib）；跨层规则是蓝图 `## Layers` 声明式领域知识（非新 governed rule ID，META-003）；
+建造计划本身不过独立审查（REV-001 仅答案门）。
+
+**状态：AS_BUILT。** 629 测试全绿（628 pass + 1 skip，+63 additive），test-agent 独立
+run-confirmed；`build-product.sh` 干净（8 命令，import canary 含 build_plan，无 dev-only
+泄漏）；`validate_domain_contract` PASS（46 规则，required_routes 含 build-from-requirement +
+bootstrap，CLAUDE.md 114<200）；design-vs-as-built 评估 CONVERGED（12 维度 PASS，0
+BLOCKER/MAJOR，4 MINOR 防御性增强）。4 个 MINOR 增强（`validate_layer_dependency` 不收
+known_models、`build_model_entry` 额外净化 upstream_deps、registry 256 KiB 上限、
+`validate_build_plan` 拒重复模型名）已记录为 as-built 偏离，不回改设计。完整设计 + as-built
+和解见 `docs/technical-design-requirement-driven-build.md`（AS_BUILT，§12 as-built notes）；
+调用链见 `docs/feature-flow-requirement-driven-build-v1.md`；评估见
+`docs/optimization-checklist-requirement-driven-build-v1.md`（CONVERGED）；测试见
+`docs/test-report-requirement-driven-build-v1.md`（ALL_PASSED）。live MySQL 维护链与 live
+build-from-requirement 端到端仍在 v1 范围外（确定性 lib 面 OFFLINE 验证）。

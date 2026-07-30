@@ -20,6 +20,8 @@ from chatbi_harness.bootstrap import (  # noqa: E402
     SourceTable,
     build_mysql_adapter_spec,
     merge_local_config,
+    merge_source_inventories,
+    read_source_inventory,
 )
 from chatbi_harness.config import load_effective_config  # noqa: E402
 from chatbi_harness.gates import GateError  # noqa: E402
@@ -526,6 +528,141 @@ class SourceInventoryTests(unittest.TestCase):
         self.assertEqual(rendered["tables"], [])
         self.assertEqual(rendered["source_database"], "public")
         json.dumps(rendered, allow_nan=False)
+
+
+class ReadSourceInventoryTests(unittest.TestCase):
+    def _sample_inventory_dict(self) -> dict:
+        return {
+            "schema_version": 1,
+            "source_database": "public",
+            "tables": [
+                {
+                    "name": "orders",
+                    "columns": [
+                        {"name": "id", "data_type": "bigint", "is_primary_key": True},
+                        {"name": "amount", "data_type": "decimal", "is_primary_key": False},
+                    ],
+                },
+                {
+                    "name": "customers",
+                    "columns": [
+                        {"name": "cid", "data_type": "int", "is_primary_key": True},
+                    ],
+                },
+            ],
+        }
+
+    def test_round_trips_with_to_dict(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "source_inventory.json"
+            path.write_text(json.dumps(self._sample_inventory_dict()), encoding="utf-8")
+            inv = read_source_inventory(path)
+            self.assertEqual(inv.source_database, "public")
+            self.assertEqual(len(inv.tables), 2)
+            self.assertEqual(inv.tables[0].name, "orders")
+            self.assertEqual(len(inv.tables[0].columns), 2)
+            self.assertTrue(inv.tables[0].columns[0].is_primary_key)
+            # Round-trip: read -> to_dict == original dict
+            self.assertEqual(inv.to_dict(), self._sample_inventory_dict())
+
+    def test_absent_raises_gate_error(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            with self.assertRaises(GateError) as ctx:
+                read_source_inventory(Path(d) / "nonexistent.json")
+            self.assertIn("HOOK-004", ctx.exception.decision.rule_ids)
+
+    def test_malformed_raises_gate_error(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "source_inventory.json"
+            path.write_text("{not json", encoding="utf-8")
+            with self.assertRaises(GateError):
+                read_source_inventory(path)
+
+    def test_wrong_schema_version_raises_gate_error(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "source_inventory.json"
+            data = self._sample_inventory_dict()
+            data["schema_version"] = 99
+            path.write_text(json.dumps(data), encoding="utf-8")
+            with self.assertRaises(GateError):
+                read_source_inventory(path)
+
+
+class MergeSourceInventoriesTests(unittest.TestCase):
+    def _table(self, name: str) -> SourceTable:
+        return SourceTable(
+            name=name,
+            columns=(SourceColumn(name="id", data_type="int", is_primary_key=True),),
+        )
+
+    def _inventory(self, tables: tuple[SourceTable, ...]) -> SourceInventory:
+        return SourceInventory(source_database="public", tables=tables)
+
+    def test_union_by_name(self) -> None:
+        base = self._inventory((self._table("orders"),))
+        extra = self._inventory((self._table("customers"),))
+        merged = merge_source_inventories(base, extra)
+        self.assertEqual(len(merged.tables), 2)
+        self.assertEqual(merged.tables[0].name, "orders")
+        self.assertEqual(merged.tables[1].name, "customers")
+
+    def test_collision_raises_gate_error(self) -> None:
+        base = self._inventory((self._table("orders"),))
+        extra = self._inventory((self._table("orders"),))
+        with self.assertRaises(GateError) as ctx:
+            merge_source_inventories(base, extra)
+        self.assertIn("HOOK-004", ctx.exception.decision.rule_ids)
+
+    def test_result_is_new_frozen_inventory(self) -> None:
+        base = self._inventory((self._table("orders"),))
+        extra = self._inventory((self._table("customers"),))
+        merged = merge_source_inventories(base, extra)
+        # Result is a new frozen SourceInventory (not base or extra).
+        self.assertIsNot(merged, base)
+        self.assertIsNot(merged, extra)
+        # Inputs not mutated.
+        self.assertEqual(len(base.tables), 1)
+        self.assertEqual(len(extra.tables), 1)
+        # Result has both.
+        self.assertEqual(len(merged.tables), 2)
+
+    def test_source_database_from_base(self) -> None:
+        base = SourceInventory(source_database="production", tables=(self._table("orders"),))
+        extra = SourceInventory(source_database="staging", tables=(self._table("customers"),))
+        merged = merge_source_inventories(base, extra)
+        self.assertEqual(merged.source_database, "production")
+
+    def test_schema_version_stays_one(self) -> None:
+        base = self._inventory((self._table("orders"),))
+        extra = self._inventory((self._table("customers"),))
+        merged = merge_source_inventories(base, extra)
+        self.assertEqual(merged.to_dict()["schema_version"], 1)
+
+    def test_empty_extra_returns_base_tables(self) -> None:
+        base = self._inventory((self._table("orders"),))
+        extra = self._inventory(())
+        merged = merge_source_inventories(base, extra)
+        self.assertEqual(len(merged.tables), 1)
+        self.assertEqual(merged.tables[0].name, "orders")
+
+    def test_incremental_path_round_trip(self) -> None:
+        """Simulate the incremental introspect: read base -> merge extra -> rewrite."""
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "source_inventory.json"
+            # Write base inventory (from original bootstrap).
+            base = self._inventory((self._table("orders"),))
+            path.write_text(json.dumps(base.to_dict()), encoding="utf-8")
+            # Simulate incremental introspect of newly-approved tables.
+            extra = self._inventory((self._table("events"), self._table("users")))
+            base_read = read_source_inventory(path)
+            merged = merge_source_inventories(base_read, extra)
+            # Rewrite.
+            path.write_text(json.dumps(merged.to_dict()), encoding="utf-8")
+            # Verify round-trip.
+            final = read_source_inventory(path)
+            self.assertEqual(len(final.tables), 3)
+            names = {t.name for t in final.tables}
+            self.assertEqual(names, {"orders", "events", "users"})
 
 
 if __name__ == "__main__":

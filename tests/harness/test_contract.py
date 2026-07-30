@@ -63,6 +63,8 @@ class DomainContractTests(unittest.TestCase):
         root_contract = (WORKSPACE_ROOT / "harness" / "CLAUDE.md").read_text(encoding="utf-8")
         required_routes = (
             "/chatbi-init",
+            "/chatbi-bootstrap",
+            "/chatbi-build-from-requirement",
             "/chatbi-analyze",
             "/chatbi-maintain-model",
             "/chatbi-maintain-knowledge",

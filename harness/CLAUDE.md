@@ -73,6 +73,7 @@ missing capability and recovery action instead of improvising it.
 | --- | --- | --- |
 | Install or diagnose | `/chatbi-init` | capability and production-readiness evidence |
 | Bootstrap a Warehouse | `/chatbi-bootstrap` | local config, dw DB, source inventory, project scaffold |
+| Build from a requirement | `/chatbi-build-from-requirement` | derived build plan + chained maintain-model + hand-off to analyze |
 | Analyze data | `/chatbi-analyze` | reviewed answer with provenance footer |
 | Maintain a model | `/chatbi-maintain-model` | impact, tests, knowledge, and evaluation evidence |
 | Maintain knowledge | `/chatbi-maintain-knowledge` | governed reference and routing evidence |

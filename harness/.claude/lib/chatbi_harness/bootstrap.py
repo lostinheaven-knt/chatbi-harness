@@ -23,8 +23,11 @@ Public surface (technical-design-bootstrap.md §3):
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 
 from .gates import GateDecision, GateError
 
@@ -250,10 +253,218 @@ class SourceInventory:
         }
 
 
+def read_source_inventory(path: Path) -> SourceInventory:
+    """Inverse of :meth:`SourceInventory.to_dict`.
+
+    Parse ``.chatbi/bootstrap/source_inventory.json`` into a
+    :class:`SourceInventory` / :class:`SourceTable` / :class:`SourceColumn`.
+    Absent file -> :class:`GateError` (HOOK-004): the build-from-requirement
+    flow requires a bootstrapped Workspace; an absent inventory is a missing
+    prerequisite, not an empty registry. Malformed JSON / ``schema_version !=
+    1`` / unknown column shape -> :class:`GateError` (fail-closed on tampered
+    evidence).
+
+    The absent-policy asymmetry vs :func:`chatbi_harness.build_plan.
+    read_model_registry` is intentional: the registry starts empty (first
+    build legitimately has no models); the source inventory is a bootstrap
+    prerequisite - its absence means bootstrap has not run, which is a hard
+    STOP for build-from-requirement Step 1. Both are fail-closed on
+    malformed/tampered; they differ only on absent.
+    """
+    if not isinstance(path, Path):
+        raise _bootstrap_gate_error(
+            rule_ids=("HOOK-004",),
+            evidence_ref="bootstrap:source-inventory:path",
+            reason="source_inventory path must be a Path",
+            recovery="Provide a Path to .chatbi/bootstrap/source_inventory.json",
+        )
+    if not path.is_file():
+        raise _bootstrap_gate_error(
+            rule_ids=("HOOK-004",),
+            evidence_ref="bootstrap:source-inventory:absent",
+            reason="source_inventory.json is absent; bootstrap has not run",
+            recovery="Run /chatbi-bootstrap to introspect the source schema first",
+        )
+    try:
+        raw = path.read_bytes()
+        if len(raw) > 256 * 1024:
+            raise ValueError("source_inventory.json exceeds 256 KiB")
+        data = json.loads(raw.decode("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as error:
+        raise _bootstrap_gate_error(
+            rule_ids=("HOOK-004",),
+            evidence_ref="bootstrap:source-inventory:malformed",
+            reason=f"source_inventory.json is malformed: {type(error).__name__}",
+            recovery="Re-run /chatbi-bootstrap to regenerate the inventory",
+        ) from error
+    if not isinstance(data, dict):
+        raise _bootstrap_gate_error(
+            rule_ids=("HOOK-004",),
+            evidence_ref="bootstrap:source-inventory:shape",
+            reason="source_inventory.json must be a JSON object",
+            recovery="Re-run /chatbi-bootstrap to regenerate the inventory",
+        )
+    version = data.get("schema_version")
+    if version != 1:
+        raise _bootstrap_gate_error(
+            rule_ids=("HOOK-004",),
+            evidence_ref="bootstrap:source-inventory:schema-version",
+            reason=f"source_inventory schema_version must be 1; got {version!r}",
+            recovery="Re-run /chatbi-bootstrap to regenerate the inventory",
+        )
+    source_database = data.get("source_database")
+    if not isinstance(source_database, str) or not source_database:
+        raise _bootstrap_gate_error(
+            rule_ids=("HOOK-004",),
+            evidence_ref="bootstrap:source-inventory:source-database",
+            reason="source_inventory source_database must be a non-empty string",
+            recovery="Re-run /chatbi-bootstrap to regenerate the inventory",
+        )
+    raw_tables = data.get("tables")
+    if not isinstance(raw_tables, list):
+        raise _bootstrap_gate_error(
+            rule_ids=("HOOK-004",),
+            evidence_ref="bootstrap:source-inventory:tables",
+            reason="source_inventory tables must be an array",
+            recovery="Re-run /chatbi-bootstrap to regenerate the inventory",
+        )
+    tables: list[SourceTable] = []
+    for index, raw_table in enumerate(raw_tables):
+        if not isinstance(raw_table, dict):
+            raise _bootstrap_gate_error(
+                rule_ids=("HOOK-004",),
+                evidence_ref=f"bootstrap:source-inventory:table[{index}]",
+                reason=f"table entry {index} must be a JSON object",
+                recovery="Re-run /chatbi-bootstrap to regenerate the inventory",
+            )
+        table_name = raw_table.get("name")
+        if not isinstance(table_name, str) or not table_name:
+            raise _bootstrap_gate_error(
+                rule_ids=("HOOK-004",),
+                evidence_ref=f"bootstrap:source-inventory:table[{index}]:name",
+                reason=f"table entry {index} name must be a non-empty string",
+                recovery="Re-run /chatbi-bootstrap to regenerate the inventory",
+            )
+        raw_columns = raw_table.get("columns")
+        if not isinstance(raw_columns, list):
+            raise _bootstrap_gate_error(
+                rule_ids=("HOOK-004",),
+                evidence_ref=f"bootstrap:source-inventory:table[{index}]:columns",
+                reason=f"table {table_name} columns must be an array",
+                recovery="Re-run /chatbi-bootstrap to regenerate the inventory",
+            )
+        columns: list[SourceColumn] = []
+        for col_index, raw_col in enumerate(raw_columns):
+            if not isinstance(raw_col, dict):
+                raise _bootstrap_gate_error(
+                    rule_ids=("HOOK-004",),
+                    evidence_ref=(
+                        f"bootstrap:source-inventory:table[{index}]"
+                        f":column[{col_index}]"
+                    ),
+                    reason=(
+                        f"column {col_index} of table {table_name} must be a "
+                        "JSON object"
+                    ),
+                    recovery="Re-run /chatbi-bootstrap to regenerate the inventory",
+                )
+            col_name = raw_col.get("name")
+            col_type = raw_col.get("data_type")
+            col_pk = raw_col.get("is_primary_key")
+            if not isinstance(col_name, str) or not col_name:
+                raise _bootstrap_gate_error(
+                    rule_ids=("HOOK-004",),
+                    evidence_ref=(
+                        f"bootstrap:source-inventory:table[{index}]"
+                        f":column[{col_index}]:name"
+                    ),
+                    reason=(
+                        f"column {col_index} of table {table_name} name must "
+                        "be a non-empty string"
+                    ),
+                    recovery="Re-run /chatbi-bootstrap to regenerate the inventory",
+                )
+            if not isinstance(col_type, str) or not col_type:
+                raise _bootstrap_gate_error(
+                    rule_ids=("HOOK-004",),
+                    evidence_ref=(
+                        f"bootstrap:source-inventory:table[{index}]"
+                        f":column[{col_index}]:data-type"
+                    ),
+                    reason=(
+                        f"column {col_name} of table {table_name} data_type "
+                        "must be a non-empty string"
+                    ),
+                    recovery="Re-run /chatbi-bootstrap to regenerate the inventory",
+                )
+            if not isinstance(col_pk, bool):
+                raise _bootstrap_gate_error(
+                    rule_ids=("HOOK-004",),
+                    evidence_ref=(
+                        f"bootstrap:source-inventory:table[{index}]"
+                        f":column[{col_index}]:is-primary-key"
+                    ),
+                    reason=(
+                        f"column {col_name} of table {table_name} "
+                        "is_primary_key must be a boolean"
+                    ),
+                    recovery="Re-run /chatbi-bootstrap to regenerate the inventory",
+                )
+            columns.append(SourceColumn(
+                name=col_name,
+                data_type=col_type,
+                is_primary_key=col_pk,
+            ))
+        tables.append(SourceTable(name=table_name, columns=tuple(columns)))
+    return SourceInventory(source_database=source_database, tables=tuple(tables))
+
+
+def merge_source_inventories(
+    base: SourceInventory, extra: SourceInventory,
+) -> SourceInventory:
+    """Union two source inventories by table name.
+
+    On name collision -> :class:`GateError` (HOOK-004): do NOT silently
+    overwrite an already-inventoried table (v1 = fail-closed; a future
+    overwrite-with-human-approval path is out of scope). Returns a new frozen
+    :class:`SourceInventory` (does not mutate inputs). ``schema_version``
+    stays 1 (inventory shape unchanged, only adds tables).
+
+    ``base`` = on-disk inventory (read via :func:`read_source_inventory`);
+    ``extra`` = the scoped incremental introspect result (newly-approved
+    tables only). The result ``source_database`` = ``base.source_database``
+    (the incremental introspect is against the same source DB).
+    """
+    existing_names = {table.name for table in base.tables}
+    for extra_table in extra.tables:
+        if extra_table.name in existing_names:
+            raise _bootstrap_gate_error(
+                rule_ids=("HOOK-004",),
+                evidence_ref=f"bootstrap:merge:collision:{extra_table.name}",
+                reason=(
+                    f"source table {extra_table.name} is already inventoried; "
+                    "incremental merge does not overwrite existing tables"
+                ),
+                recovery=(
+                    "Remove the duplicate table from the incremental introspect "
+                    "or refresh the full inventory via /chatbi-bootstrap"
+                ),
+            )
+    # Build a new tuple: base tables first, then extra tables. The frozen
+    # dataclass is immutable so we construct a fresh SourceInventory.
+    combined_tables = tuple(base.tables) + tuple(extra.tables)
+    return SourceInventory(
+        source_database=base.source_database,
+        tables=combined_tables,
+    )
+
+
 __all__ = [
     "SourceColumn",
     "SourceInventory",
     "SourceTable",
     "build_mysql_adapter_spec",
     "merge_local_config",
+    "merge_source_inventories",
+    "read_source_inventory",
 ]

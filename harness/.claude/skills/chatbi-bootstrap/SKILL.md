@@ -199,6 +199,24 @@ clobber) if `dw` already has tables (Risk #4).
      (change_kind=semantic, SEM-003); `/chatbi-maintain-model` reads it when
      building ODS/DWD so it does not re-derive column roles from each request.
      Leave it empty for the operator to fill; do not invent metrics.
+   - a `## Layers` section header (empty placeholder) where the operator/domain
+     owner records the cross-layer dependency rules (declarative domain
+     knowledge, META-003). The stub skeleton records the layer ORDER and the
+     no-cross-layer constraint, but the actual per-org rules are left empty for
+     the operator to fill:
+     - layer order: ODS (source-aligned) -> DWD (detail, joins ODS) -> DWS
+       (summary, aggregates DWD) -> ADS (application, summarizes DWS). DIM is
+       an independent dimension layer, referenceable by DWD/DWS/ADS.
+     - no-cross-layer rule: ADS depends only on DWS/DIM; DWS only on DWD/DIM;
+       DWD only on ODS/DIM.
+     - exceptions must be explicit (which model crosses a layer + reason + human
+       approval), recorded in `ModelEntry.cross_layer_exception` (DOC-002) -
+       NOT in the blueprint (Q2: exceptions stay in plan metadata + registry).
+     `/chatbi-maintain-model` reads `## Layers` before drafting ODS/DWD/DWS/ADS
+     so it does not invent cross-layer rules (META-003/PORT-001). If `## Layers`
+     is absent or has no rule for the model's layer, ask the operator - do not
+     invent cross-layer rules. Leave the actual rules empty for the operator to
+     fill; do not invent layer permissions.
    Governed references stay co-located with models and routed through
    `/chatbi-maintain-knowledge`.
 3. These are candidate writes to the Workspace; `workspace.allow_candidate_writes`

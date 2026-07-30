@@ -94,6 +94,29 @@ Evidence status: the deterministic lib surface (`build_mysql_adapter_spec`,
 at `.claude/skills/chatbi-bootstrap/SKILL.md` covers the live path for manual
 E2E. StarRocks / other MySQL-protocol engines are unverified for v1.
 
+## Build from a requirement (`/chatbi-build-from-requirement`)
+
+When `/chatbi-analyze` stops on T1-coverage / "needs new model",
+`/chatbi-build-from-requirement` is the orchestrator that derives a DWD/DWS/ADS
+build plan from the requirement + Warehouse state + blueprint, chains
+`/chatbi-maintain-model` per model in dependency order, routes protected points
+(source boundary / metric approval / access policy / production publish /
+destructive migration) to the human, and hands off to `/chatbi-analyze` once
+models are in place. It does NOT author governed model content (maintain-model
+does), answer the business question (analyze does), or approve metrics (the
+human does) - the same "narrow trust layer" shape as `/chatbi-bootstrap`.
+
+Evidence status: the deterministic lib surface (`build_plan.py`:
+`ModelEntry`/`BuildPlan`/`LayerRule` dataclasses, `build_model_entry` factory,
+`read_model_registry`, `validate_build_plan` with `known_models` SCOPE-001
+cross-plan-boundary check, `validate_layer_dependency`, `append_model_registry`;
+`bootstrap.py`: `read_source_inventory`, `merge_source_inventories`) is
+**VERIFIED OFFLINE** by `tests/harness/test_build_plan.py` +
+`tests/harness/test_bootstrap.py`. Live derivation (agent reasoning of join/
+aggregate logic) + maintain-model chaining + live `/chatbi-analyze` hand-off
+are **NOT YET EXERCISED** in CI; the runbook at
+`.claude/skills/chatbi-build/SKILL.md` covers the live path for manual E2E.
+
 ## Evidence status
 
 - **VERIFIED OFFLINE:** Python tests exercise the real domain contract, shared/local config loader,
