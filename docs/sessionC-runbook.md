@@ -259,7 +259,60 @@ extend-source + 要人批)即验证门控;完整链路(bootstrap 增量 introspe
    `dws_trade_usage_daily`)?注意 stop_gate 需 eval run(EVAL-004),可能没写(同 5.1)。
 6. **推导逻辑**:join(session_id)+ 聚合(credits_used_amount)从需求 + 蓝图推导(不写死)?
 
-## 8. 关注点(反馈给我)
+## 8. 建 ADS 物化表路径 - 验证 Step 4.1 建 ADS + analyze 查 ADS
+
+5.1/7 的需求都是分析性问题(对比/相关性),agent 判断 DWS 够回答,**没建 ADS**,
+直接 analyze 查 DWS。这个 case 要让 agent **建 ADS 物化表**:需求明确"建表给应用
+直接读,不要每次查询算" -> 物化 ADS(不是 analyze 查 DWS)。
+
+### 8.1 需求文本
+
+```
+/chatbi-build-from-requirement 给运营后台建一个"高使用高额度消耗创作者清单"表,每天更新,供运营后台直接读取(不要每次查询算)。
+```
+
+### 8.2 为什么这个需求能验证建 ADS 物化表
+
+- 需求明确"建表"+"供后台直接读"+"不要每次查询算" = **物化 ADS 表**(不是 analyze
+  查 DWS)。
+- 现有 DWS `dws_creator_usage_credits`(第 7 章建)有 session_count +
+  total_credits_used,可作 ADS 上游。
+- ADS 层:筛选高使用高消耗创作者,物化成表。跨层 `ads -> {dws, dim}`。
+
+### 8.3 预期 agent 行为
+
+- **Step 1**:读蓝图 § Metrics + § Layers(`ads -> {dws, dim}`)。
+  `collect_known_models` = 现有模型(含 `dws_creator_usage_credits`)。`select_adapter`
+  发现 T1 不覆盖(无"高使用高消耗清单"语义指标)。
+- **Step 2 推导**:需求要物化清单表 -> 建 ADS(不是 analyze 查 DWS)。
+  - 建 `ads_high_usage_high_credits_creator_list`(ADS,依赖
+    `dws_creator_usage_credits`,筛选高使用高消耗创作者,物化表)。
+  - ADS 跨层:`ads -> {dws, dim}`,依赖 DWS,过。
+  - `validate_build_plan`(`known_models` 含 `dws_creator_usage_credits`)+
+    `validate_layer_dependency`(`ads -> {dws, dim}`)。
+  - **阈值处理**:需求没给"高使用/高消耗"阈值。agent 可能 STOP 问阈值
+    (REQ-001/002),或用合理默认(top N / 高于平均 / 分位数)+ 标记假设。看 agent
+    怎么处理。
+- **Step 3**:串 maintain-model 建 ADS(`change_kind=model`,`layer=ads`,
+  `upstream_deps=[dws_creator_usage_credits]`)。dbt build 物化成 dw 表。sync gate pass
+  后 `append_model_registry`。
+- **Step 4**:交接 analyze(7 字段)。analyze 查 ADS 物化表(T2 受控参考)出答案。
+
+### 8.4 关注点(反馈给我)
+
+1. **物化识别**:agent 是否识别"建表给后台直接读,不要每次查询算" -> 建 ADS 物化表
+   (而非 analyze 查 DWS)?**对比 5.1/7**(分析性问题,不物化,直接 analyze 查 DWS)。
+2. **ADS 跨层校验**:`ads -> {dws, dim}`。ADS 依赖 `dws_creator_usage_credits`(DWS),
+   过。如果误依赖 DWD/ODS,`validate_layer_dependency` 拒。
+3. **ADS 物化表真建**:dbt build 是否物化成 dw 表(materialized=table)?
+4. **analyze 查 ADS**:交接后 analyze 是否查 ADS 物化表(T2 受控参考),而非 T2 降级
+   查 DWS?
+5. **阈值处理**:需求没给"高使用/高消耗"阈值。agent 是 STOP 问(REQ-001/002),还是
+   用默认(top N / 平均 / 分位数)+ 标记假设?
+6. **registry**:是否写 1 条新 ADS 模型?注意 stop_gate 需 eval run(EVAL-004),可能
+   没写(同 5.1/7)。
+
+## 9. 关注点(反馈给我)
 
 1. **agent Step 1 怎么发现现有模型?**
    - 复用路径:靠 `select_adapter` 发现 T1(不依赖 registry)- 应该能跑通。
@@ -275,7 +328,7 @@ extend-source + 要人批)即验证门控;完整链路(bootstrap 增量 introspe
 5. **串 maintain-model**(建造路径):sync gate pass 后是否触发
    `append_model_registry`?`model_registry.json` 是否被创建?
 
-## 9. 反馈
+## 10. 反馈
 
 把命令输出 / agent 行为 / 报错贴给我。我在这修,重新同步到 chatbi-ws,重测。
 live smoke 干净了再 commit+push。
