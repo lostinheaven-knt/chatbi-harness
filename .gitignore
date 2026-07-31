@@ -17,3 +17,13 @@ __pycache__/
 # builds into the repo, ignore it.
 chatbi/
 dist/
+
+# Dev workspace files (orchestrate workflow + tests + dev docs) - NOT part of
+# the harness product. build-product.sh builds from harness/ only. Leading /
+# scopes to repo root so harness/CLAUDE.md, harness/.claude/, harness/docs/
+# are NOT ignored.
+/.claude/
+/docs/
+/tests/
+/AGENTS.md
+/CLAUDE.md
