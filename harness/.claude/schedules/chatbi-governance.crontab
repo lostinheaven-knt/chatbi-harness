@@ -1,0 +1,56 @@
+# ChatBI Governance crontab - portable template (operator adapts to real infra)
+#
+# This is a PORTABLE schedule specification, NOT a runnable crontab as-is. The
+# harness ships NO scheduler and does NOT assume a resident Agent (FR-2 non-goal:
+# docs/requirements-proactive-governance.md:138). Entries below are interactive
+# Claude Code slash commands (harness/.claude/commands/) that cron cannot invoke
+# directly. Adapt each entry to your real scheduling infrastructure (cron, Airflow,
+# k8s CronJob, systemd timer). See docs/harness/scheduling.md.
+#
+# Two environment variables MUST be set by the operator before any entry runs:
+#   CHATBI_WORKSPACE  absolute path to the Warehouse Workspace root
+#   CHATBI_INVOKE     how your infra triggers a governance slash command
+#                     (e.g. 'claude -p' is a CANDIDATE, operator-verified; the
+#                     harness does NOT guarantee a headless invocation path)
+# Unset -> the ${VAR:?} expansion fails loud (HOOK-004 fail-closed); the entry
+# does NOT run silently.
+#
+# PORT-001: this file MUST contain no machine paths. It is guarded by
+# chatbi_harness.schedules.validate_crontab_portability (unit tests + build) and
+# the build-product.sh canary sweep. Do NOT edit a machine path into this file;
+# set CHATBI_WORKSPACE in your infra instead.
+#
+# Evidence: only /chatbi-audit-drift persists to .chatbi/runs/<sid>/ today
+# (drift_report.json). The other activities return results in the chat footer
+# only; persisting them to .chatbi/runs/ is a follow-up (out of crontab-config-
+# only scope). Each entry's evidence expectation is noted inline.
+#
+# Cadence: daily = drift accumulates fast (FM-STALE); weekly = periodic
+# refresh/regression (META-005, FBK-001); on-change = event-driven (no cron line,
+# wire to your infra's event trigger).
+#
+# Human-protection: every activity only DRAFTS candidates; all merges still
+# require domain-owner approval (SEM-003/FBK-002). The harness connects to no
+# external communication system by default (requirements §8 out-of-scope).
+
+SHELL=/bin/sh
+
+# daily: proactive drift audit (FR-1) | evidence: drift_report.json -> .chatbi/runs/<sid>/ (HAS write_state)
+0 1 * * * cd "${CHATBI_WORKSPACE:?}" && ${CHATBI_INVOKE:?} /chatbi-audit-drift --scope all
+
+# weekly: reference refresh, draft only (SEM-003) | evidence: no write_state today (chat footer); follow-up
+0 2 * * 1 cd "${CHATBI_WORKSPACE:?}" && ${CHATBI_INVOKE:?} /chatbi-maintain-knowledge
+
+# weekly: model maintenance, draft only (SEM-003) | evidence: no write_state today (chat footer); follow-up
+0 3 * * 1 cd "${CHATBI_WORKSPACE:?}" && ${CHATBI_INVOKE:?} /chatbi-maintain-model
+
+# weekly: evaluation regression (EVAL-001..004, FR-4 threshold) | evidence: no write_state today (chat footer); follow-up
+0 4 * * 1 cd "${CHATBI_WORKSPACE:?}" && ${CHATBI_INVOKE:?} /chatbi-evaluate
+
+# on-change: correction review queue (FBK-001/002) - event-driven, no default cron line.
+# Wire to your infra's event trigger, or uncomment for an optional weekly queue-drain:
+# 0 5 * * 5 cd "${CHATBI_WORKSPACE:?}" && ${CHATBI_INVOKE:?} /chatbi-correction
+
+# optional weekly: readiness diagnostic (read-only, not a periodic-governance activity).
+# Uncomment for a weekly health check after config changes:
+# 0 6 * * 1 cd "${CHATBI_WORKSPACE:?}" && ${CHATBI_INVOKE:?} /chatbi-init
