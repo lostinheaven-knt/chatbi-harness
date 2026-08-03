@@ -53,7 +53,7 @@ from .evidence import (  # noqa: E402 (sanctioned reuse, mirroring impact.py:25)
 )
 from .bootstrap import SourceInventory, read_source_inventory
 from .knowledge import _section_block, lint_reference
-from .adapters.codebase_reader import select_codebase_reader
+from .adapters.codebase_reader import CodebaseEvidence, select_codebase_reader
 
 
 _SCHEMA_VERSION = 1
@@ -68,15 +68,31 @@ FBK_003_STATEMENT = (
     "any fix."
 )
 
-# FR-1-exclusive route table (FR-0 cancelled; design gap 5). Maps a route class
-# to its hand-off target command. Each target command carries its own STOP /
-# human-approval gate; DRIFT_ROUTES is a hand-off, not an auto-fix.
+# Shared route table (FR-0 re-enabled: build SRC-002 findings route via the
+# parallel classify_src002_finding + SRC002_ROUTES; FR-1 drift candidates route
+# via classify_finding). Maps a route class to its hand-off target command. Each
+# target command carries its own STOP / human-approval gate; DRIFT_ROUTES is a
+# hand-off, not an auto-fix.
 DRIFT_ROUTES: dict[str, str] = {
     "B": "/chatbi-bootstrap",           # source scope expansion -> human approval + incremental introspect
     "C": "/chatbi-maintain-knowledge",  # stale reference / lint field -> re-author + lint + co-locate
     "D": "/chatbi-correction",          # governed artifact vs source/model contradiction -> dual candidate
     "E": "/chatbi-maintain-model",      # source shape change / metric definition needs change
     "TRIAGE": "STOP human triage",      # unavailable / skipped -> human adjudication
+}
+
+# FR-0 SRC-002 dispatch table (build Step 1 findings). B/C/D/E reference
+# DRIFT_ROUTES (single source of route targets, DRY); A (STOP ask owner) and
+# F (PASS, proceed with build chain) are build-exclusive. TRIAGE stays drift-
+# exclusive (drift classify_finding; build uses A's STOP for cross-check
+# failures). Each target command carries its own STOP / human-approval gate.
+SRC002_ROUTES: dict[str, str] = {
+    "A": "STOP: ask domain owner for clarification (REQ-001/002)",
+    "B": DRIFT_ROUTES["B"],   # /chatbi-bootstrap
+    "C": DRIFT_ROUTES["C"],   # /chatbi-maintain-knowledge
+    "D": DRIFT_ROUTES["D"],   # /chatbi-correction
+    "E": DRIFT_ROUTES["E"],   # /chatbi-maintain-model
+    "F": "PASS: proceed with build chain (no SRC-002 finding)",
 }
 
 # Governed-reference marker: the first DOC-002 required header. A markdown file
@@ -781,6 +797,45 @@ def classify_finding(candidate: DriftCandidate) -> RouteDecision:
     )
 
 
+def classify_src002_finding(evidence: CodebaseEvidence) -> RouteDecision:
+    """Deterministically route one SRC-002 cross-check finding (HOOK-001).
+
+    Build Step 1.6 produces a ``CodebaseEvidence`` per alias/target via
+    ``select_codebase_reader`` + ``reader.read/search``. This classifier maps
+    the evidence's deterministic discriminators (status + conflicts) to a
+    route class (A/D/F), using ``SRC002_ROUTES`` (which references
+    ``DRIFT_ROUTES`` for B/C/D/E). It does NOT do entity resolution (class A's
+    "ask what" is agent reasoning) and does NOT auto-execute D's approval
+    (SEM-003).
+
+    Mapping:
+      status == "ok" + conflicts non-empty -> D  /chatbi-correction
+        (governed metric definition contradicts external definition = governed
+        artifact error; correction produces a dual candidate with
+        owner_approved=false)
+      status == "ok" + conflicts empty     -> F  PASS (proceed with build chain)
+      status in {"blocked", "error"}       -> A  STOP (ask owner: alias/path
+        unresolved or cross-check failed)
+    """
+    if evidence.status == "ok":
+        if evidence.conflicts:
+            return RouteDecision(
+                "D", SRC002_ROUTES["D"],
+                "SRC-002 conflict (same-name different-definition) -> "
+                "correction dual candidate (owner_approved=false, SEM-003)",
+            )
+        return RouteDecision(
+            "F", SRC002_ROUTES["F"],
+            "no SRC-002 conflict; proceed with build chain",
+        )
+    # blocked (alias/path unresolved) or error (read/search failed)
+    return RouteDecision(
+        "A", SRC002_ROUTES["A"],
+        f"SRC-002 cross-check {evidence.status}: {evidence.reason or 'unresolved'} "
+        "-> ask domain owner",
+    )
+
+
 # ---------------------------------------------------------------------------
 # detect_drift orchestration
 # ---------------------------------------------------------------------------
@@ -870,6 +925,8 @@ __all__ = [
     "DriftReport",
     "FBK_003_STATEMENT",
     "RouteDecision",
+    "SRC002_ROUTES",
     "classify_finding",
+    "classify_src002_finding",
     "detect_drift",
 ]

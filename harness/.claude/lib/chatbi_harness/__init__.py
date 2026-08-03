@@ -30,7 +30,9 @@ from .drift import (
     DriftCandidate,
     DriftReport,
     RouteDecision,
+    SRC002_ROUTES,
     classify_finding,
+    classify_src002_finding,
     detect_drift,
 )
 from .gates import GateDecision, GateError, fail_closed, validate_domain_contract
@@ -51,10 +53,12 @@ __all__ = [
     "ModelEntry",
     "PortablePathReference",
     "RouteDecision",
+    "SRC002_ROUTES",
     "SourceInventory",
     "append_model_registry",
     "build_mysql_adapter_spec",
     "classify_finding",
+    "classify_src002_finding",
     "collect_known_models",
     "detect_drift",
     "fail_closed",

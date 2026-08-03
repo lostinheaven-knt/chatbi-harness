@@ -59,15 +59,24 @@ observation from interpretation (FBK-003).
 
 ## 4. Stop conditions
 
-Stop with `BLOCKED` when: requirement ambiguity (REQ-001/002); source-boundary
-extend (ODS missing table -> STOP for human, SCOPE-001/SEC-001); metric
-definition (SEM-003 `approve_metric`); `validate_build_plan` /
-`validate_layer_dependency` raise `GateError` (HOOK-004); any maintain-model
-sync gate fails (DOC-004); SRC-002 conflict between external Business Codebase
-definitions and governed metrics -> STOP, disclose the conflict
-(`CodebaseEvidence.conflicts`), and escalate to the domain owner (do not
-auto-define/override a metric, SEM-003/SRC-002). Surface the sanitized
-`GateDecision`, do not retry with a "fixed" value.
+Stop with `BLOCKED` and route per the SRC-002 dispatch table
+(`chatbi_harness.drift.SRC002_ROUTES`) when:
+- A (concept ambiguity / SRC-002 cross-check blocked/error): STOP and ask the
+  domain owner (REQ-001/002). Agent reasons about what to clarify; the
+  classifier does not do entity resolution.
+- B (source-boundary gap, ODS missing table): STOP for human approval ->
+  `/chatbi-bootstrap` (SCOPE-001/SEC-001/RAW-003).
+- D (SRC-002 conflict, `CodebaseEvidence.conflicts` non-empty = governed metric
+  contradicts external definition): route to `/chatbi-correction`
+  (owner_approved=false, SEM-003/SRC-002). Disclose the conflict; do not
+  auto-define/override a metric. Full chain: correction -> [owner approves] ->
+  maintain-model/knowledge -> evaluate.
+- E (governed metric definition needs new/change): route to
+  `/chatbi-maintain-model` (change_kind=semantic, SEM-003 `approve_metric`).
+- F (no SRC-002 finding): proceed with the build chain (Step 3).
+Also stop when: `validate_build_plan` / `validate_layer_dependency` raise
+`GateError` (HOOK-004); any maintain-model sync gate fails (DOC-004). Surface
+the sanitized `GateDecision`, do not retry with a "fixed" value.
 
 ## 5. Non-goals
 
