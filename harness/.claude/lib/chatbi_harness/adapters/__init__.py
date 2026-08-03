@@ -48,6 +48,12 @@ from .base import (
     AdapterEvidence,
     validate_adapter_id,
 )
+from .codebase_reader import (
+    CodebaseAccessor,
+    CodebaseReader,
+    CodebaseSelection,
+    select_codebase_reader,
+)
 
 
 # Re-declared to mirror config._SECRET_ARG (Cycle 1). Not imported from a
@@ -753,12 +759,16 @@ __all__ = [
     "AdapterCapabilities",
     "AdapterEvidence",
     "CliAdapter",
+    "CodebaseAccessor",
+    "CodebaseReader",
+    "CodebaseSelection",
     "ManagedAdapter",
     "MissingCapability",
     "SelectionOutcome",
     "build_cli_env",
     "resolve_executable",
     "select_adapter",
+    "select_codebase_reader",
     "validate_adapter_id",
     "validate_cli_argv",
 ]

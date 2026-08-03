@@ -23,12 +23,12 @@ untracked status; no commit history, no author, no message). Deep history
 requires explicit ``history_mode="full_history"`` and is blocked by default
 pending a separate safety-deviation approval.
 
-Design gap: this adapter is **not** wired into ``select_adapter`` in
-``adapters/__init__.py`` (Ticket 02 territory). The codebase_reader is a
-read-only accessor for Business Codebases, not a discover/compile/query
-adapter in the managed->CLI->STOP selection chain. Wiring it into
-``adapters/__init__.py`` would require modifying Ticket 02's file and is left
-for plan-agent evaluation. The adapter is tested by direct construction.
+Wired via the parallel ``select_codebase_reader`` selector in this module
+(re-exported from ``adapters.__init__``), NOT via ``select_adapter``. The
+codebase_reader is a read-only accessor for Business Codebases, not a
+discover/compile/query adapter in the managed->CLI->STOP selection chain; the
+two are distinct dispatch dimensions (alias-keyed read-only access vs.
+capability-kind discover/compile/query). See :class:`CodebaseAccessor`.
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Protocol
 
 from ..config import EffectiveConfig
 from ..gates import GateDecision, GateError
@@ -430,6 +430,51 @@ def _detect_conflicts(
 
 
 # --------------------------------------------------------------------------
+# CodebaseAccessor (read-only access contract, parallel to Adapter Protocol)
+# --------------------------------------------------------------------------
+
+
+class CodebaseAccessor(Protocol):
+    """Read-only Business Codebase access contract (SCOPE-002/003, SRC-002).
+
+    Deliberately distinct from the Adapter Protocol (adapters/base.py): codebase
+    reading is a read-only access dimension keyed by alias, NOT a
+    discover/compile/query capability dimension. This Protocol declares ONLY
+    read/search/stat/git_metadata (plus component + capabilities) -- there are
+    no discover/compile/query/quality/lineage methods to misreport (FBK-003:
+    honest capability reporting). execute/write/install/commit are NOT part of
+    the contract; CodebaseReader raises CodebaseScopeBlockError on them to make
+    the SCOPE-002 block verifiable.
+
+    CodebaseReader satisfies this Protocol structurally; no changes to
+    CodebaseReader are required to wire it through select_codebase_reader.
+    """
+
+    @property
+    def component(self) -> str: ...
+
+    def capabilities(self) -> Mapping[str, bool]: ...
+
+    def read(
+        self,
+        *,
+        alias: str,
+        target: str,
+        governance_context: Mapping[str, Any] | None = None,
+    ) -> CodebaseEvidence: ...
+
+    def search(
+        self, *, alias: str, pattern: str, max_results: int = 100
+    ) -> CodebaseEvidence: ...
+
+    def stat(self, *, alias: str, target: str) -> CodebaseEvidence: ...
+
+    def git_metadata(
+        self, *, alias: str, target: str, history_mode: str = "metadata_only"
+    ) -> CodebaseEvidence: ...
+
+
+# --------------------------------------------------------------------------
 # CodebaseReader
 # --------------------------------------------------------------------------
 
@@ -442,10 +487,11 @@ class CodebaseReader:
     rejection and portable references. File content is always wrapped as
     ``untrusted=true``.
 
-    Design gap: this class is not wired into ``adapters/__init__.py``
-    ``select_adapter``. The codebase_reader is a read-only accessor, not a
-    discover/compile/query adapter in the selection chain. Wiring requires
-    modifying Ticket 02's file and is deferred to plan-agent evaluation.
+    Wired into the selection surface via the parallel ``select_codebase_reader``
+    selector in this module (re-exported from ``adapters.__init__``), NOT via
+    ``select_adapter``: the codebase_reader is a read-only accessor, not a
+    discover/compile/query adapter in the selection chain. See
+    :class:`CodebaseAccessor`.
     """
 
     __slots__ = ("_config",)
@@ -961,8 +1007,99 @@ class CodebaseReader:
         return result
 
 
+# --------------------------------------------------------------------------
+# CodebaseSelection + select_codebase_reader (parallel to select_adapter)
+# --------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class CodebaseSelection:
+    """Result of selecting a read-only CodebaseReader for one alias.
+
+    Parallel in shape to SelectionOutcome (adapters/__init__.py): selected |
+    stopped + stop_decision. But for the codebase-alias dimension: holds a
+    CodebaseReader (a CodebaseAccessor, NOT an Adapter) and never an
+    AdapterEvidence. Selection produces no synthetic evidence -- the first
+    read/search/stat/git_metadata call produces the real CodebaseEvidence
+    (with portable_reference / rejected_instructions / conflicts).
+
+    select_codebase_reader validates only that the alias is declared in
+    business_codebases (config-level, no I/O). Root resolution is deferred to
+    the per-operation call: a declared-but-unbound alias surfaces as
+    CodebaseEvidence.error(root_unresolved) at read time (clean, recoverable),
+    and pretool_guard already fail-closes on unconfigured roots before any tool
+    runs. Early STOP at selection would duplicate both.
+    """
+
+    status: str  # "selected" | "stopped"
+    alias: str
+    reader: CodebaseReader | None
+    stop_decision: GateDecision | None
+
+    @classmethod
+    def selected(cls, *, alias: str, reader: CodebaseReader) -> CodebaseSelection:
+        return cls(
+            status="selected", alias=alias, reader=reader, stop_decision=None
+        )
+
+    @classmethod
+    def stopped(cls, *, alias: str, decision: GateDecision) -> CodebaseSelection:
+        return cls(
+            status="stopped", alias=alias, reader=None, stop_decision=decision
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        if self.status == "selected":
+            return {"status": "selected", "alias": self.alias}
+        return {
+            "status": "stopped",
+            "alias": self.alias,
+            "decision": self.stop_decision.to_dict() if self.stop_decision else None,
+        }
+
+
+def select_codebase_reader(
+    config: EffectiveConfig, *, alias: str
+) -> CodebaseSelection:
+    """Select the read-only CodebaseReader for ``alias`` (parallel to select_adapter).
+
+    Selection is by codebase alias (the natural key for read-only external
+    access), NOT by capability kind. This does NOT touch the select_adapter
+    managed->cli->fixture->STOP chain (adapters/__init__.py); the two are
+    distinct dispatch dimensions. The returned reader is a CodebaseAccessor
+    (read-only); it never reports discover/compile/query/quality/lineage
+    (FBK-003) and execute/write/install/commit raise CodebaseScopeBlockError
+    (SCOPE-002).
+
+    Fail-closed STOP when ``alias`` is not a declared business_codebase
+    (SCOPE-001/HOOK-004). Deterministic for identical inputs (HOOK-001).
+
+    Root resolution is deferred to the per-operation call (see CodebaseSelection
+    docstring); selection is pure config validation with no I/O.
+    """
+    codebases = config.get("business_codebases")
+    if not isinstance(codebases, Mapping) or alias not in codebases:
+        return CodebaseSelection.stopped(
+            alias=alias,
+            decision=GateDecision.block(
+                rule_ids=("SCOPE-001", "HOOK-004"),
+                evidence_refs=(f"codebase:{alias}:not-declared",),
+                reason=f"Business Codebase alias '{alias}' is not declared",
+                recovery=(
+                    "Declare the alias under business_codebases in shared "
+                    "configuration"
+                ),
+            ),
+        )
+    reader = CodebaseReader(config)
+    return CodebaseSelection.selected(alias=alias, reader=reader)
+
+
 __all__ = [
+    "CodebaseAccessor",
     "CodebaseEvidence",
     "CodebaseReader",
     "CodebaseScopeBlockError",
+    "CodebaseSelection",
+    "select_codebase_reader",
 ]

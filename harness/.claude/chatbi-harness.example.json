@@ -18,6 +18,12 @@
       "path_ref": "billing_app_root",
       "read_mode": "adapter",
       "git_history": "metadata_only"
+    },
+    "product_docs": {
+      "description": "Product documentation codebase (read-only reference)",
+      "path_ref": "product_docs_root",
+      "read_mode": "adapter",
+      "git_history": "metadata_only"
     }
   },
   "adapters": {
