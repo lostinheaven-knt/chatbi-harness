@@ -673,41 +673,87 @@ def append_model_registry(path: Path, entry: ModelEntry) -> Path:
     return path
 
 
+@dataclass(frozen=True, slots=True)
+class KnownModelProvenance:
+    """Source-attributed result of model discovery (FR-5 (b)).
+
+    ``registry_names`` = names from ``.chatbi/model_registry.json`` (规范来源).
+    ``scan_only_names`` = names found ONLY via ``models/{ods,dwd,dws,dim,ads}/*.sql``
+    directory scan (扫盘 fallback 命中 -- registry 未登记的安全网命中).
+    ``all_names`` = ``registry_names | scan_only_names`` (传给 ``validate_build_plan``
+    的 ``known_models``, 与原 ``collect_known_models`` 返回值等价).
+    ``scan_fallback_hit`` = 扫盘 fallback 是否触发 (诊断可观测信号).
+    """
+
+    registry_names: frozenset[str]
+    scan_only_names: frozenset[str]
+
+    @property
+    def all_names(self) -> frozenset[str]:
+        return self.registry_names | self.scan_only_names
+
+    @property
+    def scan_fallback_hit(self) -> bool:
+        return bool(self.scan_only_names)
+
+
+def collect_known_models_with_provenance(
+    workspace_root: Path,
+) -> KnownModelProvenance:
+    """Union of model names from the registry + on-disk ``models/`` directory,
+    WITH source attribution (FR-5 (b): 扫盘 fallback 显式标记).
+
+    registry absent -> ``registry_names = frozenset()`` (not an error,
+    :func:`read_model_registry`); ``models/`` absent -> 不扫盘.
+    ``scan_only_names`` = 磁盘 stem 集合 - registry 名集合 (registry 未登记的兜底命中).
+    """
+    registry_names: set[str] = set()
+    registry_path = workspace_root / ".chatbi" / "model_registry.json"
+    for entry in read_model_registry(registry_path):
+        registry_names.add(entry.name)
+    scan_names: set[str] = set()
+    models_dir = workspace_root / "models"
+    if models_dir.is_dir():
+        for layer_dir in models_dir.iterdir():
+            if layer_dir.is_dir():
+                for sql_file in layer_dir.glob("*.sql"):
+                    scan_names.add(sql_file.stem)
+    scan_only = scan_names - registry_names
+    return KnownModelProvenance(
+        registry_names=frozenset(registry_names),
+        scan_only_names=frozenset(scan_only),
+    )
+
+
 def collect_known_models(workspace_root: Path) -> frozenset[str]:
     """Union of model names from the registry + on-disk ``models/`` directory.
+
+    Backward-compatible thin wrapper over
+    :func:`collect_known_models_with_provenance` (DRY). Returns ``all_names``
+    (= ``registry_names | scan_only_names``). Callers needing source attribution
+    (FR-5 (b) 诊断可观测) should call :func:`collect_known_models_with_provenance`
+    directly.
 
     The registry may lag actual models (built before the registry feature
     landed are absent from it); the directory scan closes that gap. Used as
     ``known_models`` for :func:`validate_build_plan` (SCOPE-001 cross-plan-
     boundary check: a plan entry may depend on an existing model that is on
     disk but not yet in the registry).
-
-    Registry absent -> ``()`` (not an error, :func:`read_model_registry`);
-    ``models/`` absent -> skipped. Returns the union of registry model names +
-    ``models/{ods,dwd,dws,dim,ads}/*.sql`` stems.
     """
-    names: set[str] = set()
-    registry_path = workspace_root / ".chatbi" / "model_registry.json"
-    for entry in read_model_registry(registry_path):
-        names.add(entry.name)
-    models_dir = workspace_root / "models"
-    if models_dir.is_dir():
-        for layer_dir in models_dir.iterdir():
-            if layer_dir.is_dir():
-                for sql_file in layer_dir.glob("*.sql"):
-                    names.add(sql_file.stem)
-    return frozenset(names)
+    return collect_known_models_with_provenance(workspace_root).all_names
 
 
 __all__ = [
     "BuildPlan",
     "CrossLayerException",
     "HumanApproval",
+    "KnownModelProvenance",
     "LayerRule",
     "ModelEntry",
     "append_model_registry",
     "build_model_entry",
     "collect_known_models",
+    "collect_known_models_with_provenance",
     "read_model_registry",
     "validate_build_plan",
     "validate_layer_dependency",

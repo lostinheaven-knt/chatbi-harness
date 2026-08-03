@@ -79,6 +79,7 @@ class EvaluationRun:
     tokens: int
     latency_ms: int
     seen: bool
+    release: bool
     threshold_owner_confirmed: bool
 
     @property
@@ -99,6 +100,7 @@ class EvaluationRun:
             "tokens": self.tokens,
             "latency_ms": self.latency_ms,
             "seen": self.seen,
+            "release": self.release,
             "threshold_owner_confirmed": self.threshold_owner_confirmed,
             "passed_count": self.passed_count,
             "total_count": len(self.assertions),
@@ -169,6 +171,8 @@ def build_evaluation_run(
     vault: GroundTruthVault, actuals: Mapping[str, Any],
     tokens: int, latency_ms: int, seen: bool,
     threshold_owner_confirmed: bool,
+    release: bool = False,
+    release_threshold: float | None = None,
     rule_ids_by_assertion: Mapping[str, tuple[str, ...]] | None = None,
     content_payload: Any,
 ) -> EvaluationRun:
@@ -177,6 +181,14 @@ def build_evaluation_run(
     Fail-closed: a missing assertion_id in the vault raises ``GateError``.
     ``content_hash`` is computed from ``content_payload`` (no Git -> content
     hash, EVAL-003). The run always carries the FBK-003 statement.
+
+    FR-4 (b): on a release-level slice (``release=True``), raises ``GateError``
+    (EVAL-004/HOOK-004) when ``threshold_owner_confirmed`` is not true,
+    ``release_threshold`` is None, the slice has no assertions, or the pass
+    rate ``passed_count / total_count`` < ``release_threshold``. Non-release
+    slices (探索/消融) stay soft (no block, RG-03). The threshold value comes
+    from the governed config (SEM-003: Agent must not self-set); this function
+    only compares. FBK-003: a passing run still carries the disclaimer.
     """
     if not run_id or not model_id:
         raise _eval_gate_error(
@@ -199,10 +211,59 @@ def build_evaluation_run(
         tokens=int(tokens),
         latency_ms=int(latency_ms),
         seen=bool(seen),
+        release=bool(release),
         threshold_owner_confirmed=bool(threshold_owner_confirmed),
     )
+    _enforce_release_gate(run, release_threshold)
     validate_evaluation(run.to_dict())
     return run
+
+
+def _enforce_release_gate(run: EvaluationRun,
+                          release_threshold: float | None) -> None:
+    """FR-4 (b) release-level hard gate. Soft on non-release (RG-03).
+
+    Lib 层门控 (用户指示: agent 会跳过 SKILL 散文, 钉死在 lib 才确定性, HOOK-001).
+    threshold 值由调用方从受治 config 传入, lib 不自定 (SEM-003). 不硬编码 ~90%
+    (EVAL-004). 门控顺序: confirmed -> threshold None -> empty -> pass_rate
+    (先报最前置缺失, error 信息精确). blocked run 不返回 (OD4, 与 run_id 空 raise
+    一致).
+    """
+    if not run.release:
+        return  # non-release (探索/消融): soft, no block; record confirmed as-is
+    if not run.threshold_owner_confirmed:
+        raise _eval_gate_error(
+            rule_ids=("EVAL-004", "HOOK-004"),
+            evidence_ref="evaluator:release-threshold-owner-unconfirmed",
+            reason="release slice threshold is not owner-confirmed",
+            recovery="Have the accountable owner confirm the release threshold (SEM-003)",
+        )
+    if release_threshold is None:
+        raise _eval_gate_error(
+            rule_ids=("EVAL-004", "HOOK-004"),
+            evidence_ref="evaluator:release-threshold-unset",
+            reason="release slice has no configured release_threshold",
+            recovery="Have the owner configure evaluation.release_threshold",
+        )
+    total = len(run.assertions)
+    if total == 0:
+        raise _eval_gate_error(
+            rule_ids=("EVAL-004", "HOOK-004"),
+            evidence_ref="evaluator:release-slice-empty",
+            reason="release slice has no assertions to score",
+            recovery="Provide at least one assertion in the release slice",
+        )
+    pass_rate = run.passed_count / total
+    if pass_rate < release_threshold:
+        raise _eval_gate_error(
+            rule_ids=("EVAL-004", "HOOK-004"),
+            evidence_ref="evaluator:release-pass-rate-below-threshold",
+            reason=(
+                f"release slice pass rate {pass_rate:.4f} < release_threshold "
+                f"{release_threshold}"
+            ),
+            recovery="Raise the pass rate or have the owner adjust release_threshold",
+        )
 
 
 def validate_evaluation(payload: Mapping[str, Any]) -> None:

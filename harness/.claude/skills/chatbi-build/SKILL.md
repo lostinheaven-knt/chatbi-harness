@@ -16,7 +16,8 @@ maintain-model in CI).
 
 - Lib surface: `chatbi_harness.build_plan` (`BuildPlan`, `ModelEntry`,
   `LayerRule`, `read_model_registry`, `collect_known_models`,
-  `validate_build_plan`, `validate_layer_dependency`, `append_model_registry`) +
+  `collect_known_models_with_provenance`, `validate_build_plan`,
+  `validate_layer_dependency`, `append_model_registry`) +
   `chatbi_harness.bootstrap` (`read_source_inventory`,
   `merge_source_inventories` - Q4).
 - Reused primitives: `chatbi_harness.load_effective_config` (`config.py`),
@@ -49,13 +50,21 @@ maintain-model in CI).
 3. `read_source_inventory(Path(".chatbi/bootstrap/source_inventory.json"))` -
    read the source schema inventory (tables/columns/PKs/types). Absent ->
    `GateError` (bootstrap prerequisite missing, STOP: run `/chatbi-bootstrap`).
-4. `known_models = collect_known_models(workspace_root)` - the union of model
-   names from the registry + on-disk `models/{ods,dwd,dws,dim,ads}/*.sql` stems.
-   The registry may lag actual models (built before the registry feature landed
-   are absent from it); the directory scan closes that gap. This is the
-   `known_models` passed to `validate_build_plan` in Step 2.6 (SCOPE-001
-   cross-plan-boundary check). **Call this lib function** - do NOT rely on the
-   registry alone (it may be empty while models exist on disk).
+4. `provenance = collect_known_models_with_provenance(workspace_root)` - the
+   union of model names from the registry + on-disk `models/{ods,dwd,dws,dim,
+   ads}/*.sql` stems, WITH source attribution (FR-5 (b)). The registry may lag
+   actual models (built before the registry feature landed are absent from it);
+   the directory scan closes that gap. `known_models = provenance.all_names`
+   (= `registry_names | scan_only_names`) is passed to `validate_build_plan` in
+   Step 2.6 (SCOPE-001 cross-plan-boundary check); the `validate_build_plan`
+   signature is unchanged (`frozenset[str]`). **Call this lib function** - do
+   NOT rely on the registry alone (it may be empty while models exist on disk).
+   If `provenance.scan_fallback_hit` is True, state in the footer that the
+   following models are on disk but NOT in `model_registry.json` and were
+   reached via the directory-scan safety net: `provenance.scan_only_names`.
+   This drives the owner to backfill them via `/chatbi-maintain-model` (FR-5 (a)
+   ops; `created_rev` annotated by the owner per model, OD1) so the registry
+   becomes the single source of truth.
 5. Discover T1 semantic-layer coverage via `select_adapter` (managed -> cli ->
    fixture, `adapters/__init__.py`). Determine whether existing DWD/DWS already
    cover the requirement.
@@ -122,7 +131,7 @@ shape; it does NOT derive join/aggregate logic.
    alias/layer/change_kind + sanitizes text fields, Q5). Assemble into a
    `BuildPlan(schema_version=1, session_id=..., models=(...))`.
 6. Call `validate_build_plan(plan, layer_rules, known_models=...)` where
-   `known_models` is `collect_known_models(workspace_root)` from Step 1.4
+   `known_models` is `provenance.all_names` from Step 1.4
    (registry + on-disk models). This checks topology order + SCOPE-001
    cross-plan-boundary (a dep not in the plan or `known_models` -> GateError) +
    alias + SEM-003 consistency + Q1 extend-source gate + schema shape.

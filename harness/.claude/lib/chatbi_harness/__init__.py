@@ -9,10 +9,12 @@ from .bootstrap import (
 )
 from .build_plan import (
     BuildPlan,
+    KnownModelProvenance,
     LayerRule,
     ModelEntry,
     append_model_registry,
     collect_known_models,
+    collect_known_models_with_provenance,
     read_model_registry,
     validate_build_plan,
     validate_layer_dependency,
@@ -49,6 +51,7 @@ __all__ = [
     "DiagnosticResult",
     "GateDecision",
     "GateError",
+    "KnownModelProvenance",
     "LayerRule",
     "ModelEntry",
     "PortablePathReference",
@@ -60,6 +63,7 @@ __all__ = [
     "classify_finding",
     "classify_src002_finding",
     "collect_known_models",
+    "collect_known_models_with_provenance",
     "detect_drift",
     "fail_closed",
     "load_effective_config",

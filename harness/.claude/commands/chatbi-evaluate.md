@@ -13,7 +13,10 @@ session under test; only pass/fail + hashes are exposed.
 
 - You may run the suite and record results. You MUST NOT approve a release
   threshold on your own (EVAL-004 - owner confirmed) or approve a canonical
-  metric (SEM-003).
+  metric (SEM-003). You MUST NOT self-set the `release_threshold` value (read
+  it from the governed config via `load_effective_config`), self-mark
+  `threshold_owner_confirmed=True`, or self-declare `release=True` on behalf of
+  the owner (SEM-003).
 - No secrets / unauthorized PII / machine absolute paths in any run record
   (SEC-003, PORT-001).
 
@@ -40,8 +43,21 @@ use (EVAL-005).
 
 `build_evaluation_run` records run_id, skill_version, content_hash (no Git ->
 content hash), model_id, per-assertion results, tokens, latency_ms, seen,
-threshold_owner_confirmed. Thresholds are configurable and owner-confirmed
-(EVAL-004); never hard-code the ~90% blog value as a fixed gate.
+release, threshold_owner_confirmed. Thresholds are configurable and owner-
+confirmed (EVAL-004); never hard-code the ~90% blog value as a fixed gate.
+
+FR-4 (b) release gate (hardened in lib, HOOK-001): pass `release` (whether this
+run is a release-level slice; declared by the owner/agent for this run) and
+`release_threshold` (read from `load_effective_config` ->
+`config["evaluation"]["release_threshold"]`, SEM-003) into
+`build_evaluation_run`. On a release slice (`release=True`), the lib raises
+`GateError` (EVAL-004/HOOK-004) when `threshold_owner_confirmed` is not true,
+`release_threshold` is None, the slice has no assertions, or the pass rate <
+`release_threshold`. Catch the `GateError`, STOP, and present the
+`decision.recovery` (HOOK-004). A blocked run is NOT recorded (OD4); log the
+`GateError.decision` to the run's evaluation log instead. Non-release slices
+(探索/消融, `release=False`) stay soft (RG-03). A passing release run still
+carries the FBK-003 statement (pass != silence eliminated).
 
 ## 5. FBK-003 (mandatory)
 
@@ -51,7 +67,8 @@ the result; do not describe a pass as proof of correctness.
 
 ## 6. Footer
 
-State the suite, seen/unseen counts, pass/fail per assertion, threshold +
-owner-confirmation status, model, tokens, latency, content_hash, and the
-FBK-003 statement. Distinguish observation (assertions passed) from
-interpretation.
+State the suite, seen/unseen counts, pass/fail per assertion, the release-slice
+designation (`release=True/False`) + gate result (blocked at lib / passed soft
+/ passed release), `release_threshold` value + `threshold_owner_confirmed`
+status, model, tokens, latency, content_hash, and the FBK-003 statement.
+Distinguish observation (assertions passed) from interpretation.

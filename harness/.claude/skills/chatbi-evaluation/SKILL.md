@@ -34,8 +34,32 @@ threshold_owner_confirmed.
 ## 5. Threshold (EVAL-004)
 
 Release thresholds are configurable and owner-confirmed. Never hard-code the
-~90% blog value as a fixed gate. An unconfirmed threshold is recorded as
-`threshold_owner_confirmed=False` (not assumed met).
+~90% blog value as a fixed gate (EVAL-004). The threshold value is read from
+the governed config (`load_effective_config` ->
+`config["evaluation"]["release_threshold"]`) and passed into
+`build_evaluation_run` as `release_threshold`; the Agent MUST NOT self-set this
+value (SEM-003).
+
+FR-4 (b) release gate (hardened in lib `build_evaluation_run` ->
+`_enforce_release_gate`, HOOK-001; the agent will skip SKILL prose, so the gate
+is pinned in lib):
+
+- **Release-level slice** (`release=True`, declared by the owner/agent for this
+  run): the lib raises `GateError` (EVAL-004/HOOK-004) when
+  `threshold_owner_confirmed` is not true, `release_threshold` is None, the
+  slice has no assertions, or the pass rate `passed_count / total_count` <
+  `release_threshold`. On block: STOP and present `decision.recovery` (HOOK-004).
+  A blocked run is NOT recorded (OD4); log `GateError.decision` to the run's
+  evaluation log.
+- **Non-release slice** (探索/消融, `release=False`): soft -- no block; record
+  `threshold_owner_confirmed` as-is (RG-03). An unconfirmed threshold is
+  recorded as `threshold_owner_confirmed=False` (not assumed met).
+- A passing release run still carries the FBK-003 statement: pass != silent
+  failure eliminated (FBK-003).
+
+Gate order (most-frontal missing first): confirmed -> threshold None -> empty
+-> pass rate. `release_threshold == 0` is legal ("any pass rate, but owner must
+confirm"); `pass_rate == release_threshold` passes (strict `<`).
 
 ## 6. Semantic-layer use (EVAL-005)
 
