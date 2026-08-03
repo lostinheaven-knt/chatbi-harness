@@ -27,6 +27,7 @@ rsync -a --exclude='__pycache__' "$DEV/harness/.claude/hooks/"      "$DEST/.clau
 rsync -a                         "$DEV/harness/.claude/schemas/"    "$DEST/.claude/schemas/"
 rsync -a                         "$DEV/harness/.claude/fixtures/"   "$DEST/.claude/fixtures/"
 rsync -a                         "$DEV/harness/.claude/rules/"      "$DEST/.claude/rules/"
+rsync -a                         "$DEV/harness/.claude/schedules/"  "$DEST/.claude/schedules/"
 cp "$DEV/harness/.claude/settings.json" "$DEST/.claude/settings.json"
 cp "$DEV/harness/.claude/chatbi-harness.json" \
    "$DEV/harness/.claude/chatbi-harness.example.json" \
@@ -61,7 +62,7 @@ echo "=== product built. Validating... ==="
     "import chatbi_harness.evidence, chatbi_harness.impact, chatbi_harness.evaluator, \
      chatbi_harness.knowledge, chatbi_harness.harness_state, chatbi_harness.policy, \
      chatbi_harness.adapters, chatbi_harness.bootstrap, chatbi_harness.build_plan, \
-     chatbi_harness.drift; print('import OK')" )
+     chatbi_harness.drift, chatbi_harness.schedules; print('import OK')" )
 echo "--- canary sweep (no machine path / secret) ---"
 # grep -rnIE: POSIX grep (always present under /bin/sh). rg is not a binary in
 # some envs (zsh function) and its absence was masked by 2>/dev/null + || true,
