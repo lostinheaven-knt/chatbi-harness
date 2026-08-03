@@ -38,14 +38,27 @@ reference (`.md`/`.sql`/`.json`).
 Historical SQL / notebooks / dashboard queries are candidate clues only, never
 canonical definitions. Any SQL block must carry the `candidate_only` marker.
 
-## 6. Lint before publish
+## 6. Capture `## Citation` when authoring from a codebase read (OD1)
+
+When a reference is authored or updated from a Business Codebase read (via
+`select_codebase_reader` + `CodebaseReader.read`/`git_metadata`), capture a
+`## Citation` section from the resulting `CodebaseEvidence.portable_reference`
+(`alias` / `relative_path` / `revision` / `revision_kind`). Write `alias`,
+`relative_path`, and `git_sha` (the `revision`) into the optional `## Citation`
+section. Do not hand-edit the `git_sha` - it is machine evidence. Omit the
+section when the reference is not codebase-derived. `/chatbi-audit-drift`
+compares the cited `git_sha` against the codebase alias's current HEAD to detect
+accumulated reference staleness (FM-STALE); a missing `## Citation` is skipped
+(not an error) until back-filled here.
+
+## 7. Lint before publish
 
 Run `chatbi_harness.knowledge.lint_reference(text)`. An empty issue tuple means
 route-ready. Every issue must be resolved (fail-closed); never publish a
 reference with open issues. Conflicts between a reference and governed facts go
 to the domain owner (SRC-002).
 
-## 7. Maintenance and pruning (DOC-005)
+## 8. Maintenance and pruning (DOC-005)
 
 When a model improves, prune obsolete scaffolding and negative-value references
 rather than lengthening prompts to paper over failure. Remove a reference only

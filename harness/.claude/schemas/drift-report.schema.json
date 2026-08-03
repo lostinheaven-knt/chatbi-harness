@@ -1,0 +1,80 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "drift-report.schema.json",
+  "title": "ChatBI drift audit report",
+  "description": "Accumulated FM-STALE drift candidates (reference staleness / source drift / model-doc drift). Candidates are evidence for human triage, not auto-fix instructions (FBK-003). Applicable rules: FM-STALE, DOC-001/002/004, SRC-002, SCOPE-001/002, SEC-001/003, PORT-001, SEM-001/003, META-008, HOOK-001/004.",
+  "x-implemented-keywords": ["type", "enum", "pattern", "required", "properties", "items", "additionalProperties"],
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "produced_at", "workspace", "scope", "head_shas", "classes", "status", "fbk_003_statement", "recovery_actions", "path_references"],
+  "properties": {
+    "schema_version": {"type": "integer", "enum": [1]},
+    "produced_at": {"type": "string"},
+    "workspace": {"type": "string"},
+    "scope": {"type": "string", "enum": ["references", "sources", "models", "all"]},
+    "since": {"type": ["string", "null"]},
+    "head_shas": {"type": "object", "additionalProperties": {"type": ["string", "null"]}},
+    "status": {"type": "string", "enum": ["complete", "partial"]},
+    "fbk_003_statement": {"type": "string"},
+    "recovery_actions": {"type": "array", "items": {"type": "string"}},
+    "path_references": {"type": "array", "items": {"type": "object"}},
+    "classes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stale_reference", "source_drift", "model_doc_drift"],
+      "properties": {
+        "stale_reference": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "status", "rule_ids", "evidence_ref", "reason", "recovery", "details"],
+            "properties": {
+              "kind": {"type": "string", "enum": ["stale_reference", "source_drift", "model_doc_drift"]},
+              "status": {"type": "string", "enum": ["candidate", "unavailable", "skipped"]},
+              "rule_ids": {"type": "array", "items": {"type": "string", "pattern": "^(SCOPE|SEC|REQ|SEM|RAW|SRC|DOC|PORT|QLT|REV|ANS|EVAL|ABL|FBK|HOOK)-[0-9]{3}$"}},
+              "evidence_ref": {"type": "string"},
+              "reason": {"type": "string"},
+              "recovery": {"type": "string"},
+              "details": {"type": "object"}
+            }
+          }
+        },
+        "source_drift": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "status", "rule_ids", "evidence_ref", "reason", "recovery", "details"],
+            "properties": {
+              "kind": {"type": "string", "enum": ["stale_reference", "source_drift", "model_doc_drift"]},
+              "status": {"type": "string", "enum": ["candidate", "unavailable", "skipped"]},
+              "rule_ids": {"type": "array", "items": {"type": "string", "pattern": "^(SCOPE|SEC|REQ|SEM|RAW|SRC|DOC|PORT|QLT|REV|ANS|EVAL|ABL|FBK|HOOK)-[0-9]{3}$"}},
+              "evidence_ref": {"type": "string"},
+              "reason": {"type": "string"},
+              "recovery": {"type": "string"},
+              "details": {"type": "object"}
+            }
+          }
+        },
+        "model_doc_drift": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "status", "rule_ids", "evidence_ref", "reason", "recovery", "details"],
+            "properties": {
+              "kind": {"type": "string", "enum": ["stale_reference", "source_drift", "model_doc_drift"]},
+              "status": {"type": "string", "enum": ["candidate", "unavailable", "skipped"]},
+              "rule_ids": {"type": "array", "items": {"type": "string", "pattern": "^(SCOPE|SEC|REQ|SEM|RAW|SRC|DOC|PORT|QLT|REV|ANS|EVAL|ABL|FBK|HOOK)-[0-9]{3}$"}},
+              "evidence_ref": {"type": "string"},
+              "reason": {"type": "string"},
+              "recovery": {"type": "string"},
+              "details": {"type": "object"}
+            }
+          }
+        }
+      }
+    }
+  }
+}

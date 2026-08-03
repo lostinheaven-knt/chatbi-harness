@@ -42,6 +42,19 @@ _ABSOLUTE_PATH = re.compile(r"/(?:Users|home|private|etc|var|root)/[A-Za-z0-9._\
 _SQL_FENCE = re.compile(r"```(?:sql|SQL)?", re.MULTILINE)
 _CANDIDATE_ONLY = re.compile(r"candidate[_ -]?only", re.IGNORECASE)
 
+# Optional `## Citation` section (DOC-002, design gap 1 / OD1). NOT a required
+# field - it is absent from REQUIRED_FIELDS so existing references still lint.
+# When present with a *filled* git_sha (a real value, not a template `<...>`
+# placeholder), lint validates the shape: alias + relative_path + 40/64-hex
+# git_sha. An absent/empty/placeholder git_sha is the c-bridge skipped state
+# (citation is optional), not a lint error. The `/chatbi-audit-drift` class 1
+# check compares this cited git_sha against the codebase alias's current HEAD.
+_CITATION_SHA = re.compile(r"^[0-9a-f]{40,64}$")
+_CITATION_LINE = re.compile(
+    r"(?m)^\s*-\s+\*{0,2}(?P<key>alias|relative_path|git_sha|captured_at)\*{0,2}"
+    r"\s*:\s*(?P<val>.+?)\s*$"
+)
+
 
 @dataclass(frozen=True, slots=True)
 class LintIssue:
@@ -110,6 +123,26 @@ def lint_reference(text: str) -> tuple[LintIssue, ...]:
     if _SQL_FENCE.search(text) and not _CANDIDATE_ONLY.search(text):
         issues.append(LintIssue("raw-sql", "document",
                                 "historical SQL present without candidate_only marker"))
+
+    # Optional `## Citation` section (DOC-002, OD1). Validate shape only when a
+    # filled git_sha is present; an absent/placeholder citation is not an error.
+    if "Citation" in header_set:
+        citation_fields: dict[str, str] = {}
+        for _m in _CITATION_LINE.finditer(_section_block(text, "Citation")):
+            citation_fields[_m.group("key")] = _m.group("val").strip()
+        git_sha = citation_fields.get("git_sha", "")
+        if git_sha and not git_sha.startswith("<"):
+            if not _CITATION_SHA.fullmatch(git_sha):
+                issues.append(LintIssue("citation", "Citation",
+                                        "git_sha must be 40/64 hex characters"))
+            alias = citation_fields.get("alias", "")
+            relative_path = citation_fields.get("relative_path", "")
+            if not alias or alias.startswith("<"):
+                issues.append(LintIssue("citation", "Citation",
+                                        "alias is required when a citation git_sha is present"))
+            if not relative_path or relative_path.startswith("<"):
+                issues.append(LintIssue("citation", "Citation",
+                                        "relative_path is required when a citation git_sha is present"))
 
     return tuple(issues)
 

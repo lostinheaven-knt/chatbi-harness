@@ -32,10 +32,10 @@ cp "$DEV/harness/.claude/chatbi-harness.json" \
    "$DEV/harness/.claude/chatbi-harness.example.json" \
    "$DEV/harness/.claude/chatbi-harness.local.example.json" "$DEST/.claude/"
 
-# --- commands: the 8 chatbi commands (NOT orchestrate.md) ---
+# --- commands: the 9 chatbi commands (NOT orchestrate.md) ---
 for c in chatbi-init chatbi-analyze chatbi-maintain-model \
          chatbi-maintain-knowledge chatbi-evaluate chatbi-correction \
-         chatbi-bootstrap chatbi-build-from-requirement; do
+         chatbi-bootstrap chatbi-build-from-requirement chatbi-audit-drift; do
   cp "$DEV/harness/.claude/commands/$c.md" "$DEST/.claude/commands/"
 done
 
@@ -60,9 +60,14 @@ echo "=== product built. Validating... ==="
 ( cd "$DEST" && PYTHONPATH=.claude/lib python3 -B -c \
     "import chatbi_harness.evidence, chatbi_harness.impact, chatbi_harness.evaluator, \
      chatbi_harness.knowledge, chatbi_harness.harness_state, chatbi_harness.policy, \
-     chatbi_harness.adapters, chatbi_harness.bootstrap, chatbi_harness.build_plan; print('import OK')" )
+     chatbi_harness.adapters, chatbi_harness.bootstrap, chatbi_harness.build_plan, \
+     chatbi_harness.drift; print('import OK')" )
 echo "--- canary sweep (no machine path / secret) ---"
-rg -n '/Users/|/home/[a-z]|BEGIN .*PRIVATE KEY|sk-[A-Za-z0-9]{20}' "$DEST" 2>/dev/null \
+# grep -rnIE: POSIX grep (always present under /bin/sh). rg is not a binary in
+# some envs (zsh function) and its absence was masked by 2>/dev/null + || true,
+# making this sweep a silent no-op. /Users/[a-z] matches real user paths but not
+# doc placeholders like /Users/... (mirrors the /home/[a-z] narrowing).
+grep -rnIE '/Users/[a-z]|/home/[a-z]|BEGIN .*PRIVATE KEY|sk-[A-Za-z0-9]{20}' "$DEST" \
     | grep -vE 'fixtures/config/embedded-secret|fixtures/codebases|malicious|prohibition|example' \
     | head -5 || true
 echo "--- dev-only files must be absent ---"

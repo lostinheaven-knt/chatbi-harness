@@ -25,11 +25,22 @@ from .diagnostics import (
     probe_local_capabilities,
     run_init_diagnostic,
 )
+from .drift import (
+    DRIFT_ROUTES,
+    DriftCandidate,
+    DriftReport,
+    RouteDecision,
+    classify_finding,
+    detect_drift,
+)
 from .gates import GateDecision, GateError, fail_closed, validate_domain_contract
 from .paths import PortablePathReference, resolve_path_reference
 
 __all__ = [
     "BuildPlan",
+    "DRIFT_ROUTES",
+    "DriftCandidate",
+    "DriftReport",
     "EffectiveConfig",
     "CapabilitySnapshot",
     "DiagnosticCheck",
@@ -39,10 +50,13 @@ __all__ = [
     "LayerRule",
     "ModelEntry",
     "PortablePathReference",
+    "RouteDecision",
     "SourceInventory",
     "append_model_registry",
     "build_mysql_adapter_spec",
+    "classify_finding",
     "collect_known_models",
+    "detect_drift",
     "fail_closed",
     "load_effective_config",
     "merge_local_config",

@@ -54,6 +54,19 @@
 
 <Snapshot date or freshness SLA; "unknown" triggers a high-risk recheck warning.>
 
+## Citation
+
+> Optional (DOC-002). Machine-captured when this reference is authored from a
+> codebase read. Do not hand-edit the git_sha. `/chatbi-audit-drift` compares
+> the cited git_sha against the codebase alias's current HEAD to detect
+> accumulated reference staleness (FM-STALE). Omit this section entirely when
+> the reference is not derived from a codebase read.
+
+- alias: <business_codebase alias>
+- relative_path: <portable relative path>
+- git_sha: <40/64 hex sha | content_sha256>
+- captured_at: <ISO Z>
+
 ## Use for
 
 <Trigger conditions: use this reference when ...>
