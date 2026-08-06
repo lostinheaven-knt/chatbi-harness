@@ -1,0 +1,227 @@
+{
+  "candidate_sha": "b0f313035c02c0a382d85dbb6aca3964e41677db1582ca275f271da182474a7c",
+  "evidence_chain": [
+    {
+      "content_sha256": "29ce9d0c822ce38de2c2f53133abb123bb59bb03aca3202b1ea6f2d8bcd79354",
+      "evidence_source": "semantic-layer",
+      "payload": {
+        "canonical_metric": null,
+        "entity": "revenue",
+        "gap": "coverage_incomplete"
+      },
+      "rule_ids": [
+        "SEM-001",
+        "SEM-002"
+      ],
+      "sanitized": false,
+      "source_tier": "T1"
+    },
+    {
+      "content_sha256": "b3cf1d7acc1d71402ea264e69f132ee34b02aa569a35acea898545f42b48def2",
+      "evidence_source": "curated-reference",
+      "payload": {
+        "curated_ref": "reference_example",
+        "entity": "revenue",
+        "t1_gap": "coverage_incomplete"
+      },
+      "rule_ids": [
+        "RAW-001",
+        "SRC-001"
+      ],
+      "sanitized": false,
+      "source_tier": "T2"
+    },
+    {
+      "content_sha256": "63153b035e32aec5baf27fae1be6d52ea275f3546883f3e4ef7149bdc30a77fd",
+      "evidence_source": "raw-exploration",
+      "payload": {
+        "contact": "[REDACTED_PII]",
+        "entity": "revenue",
+        "ops_path": "[REDACTED_PATH]",
+        "raw_table": "example_raw",
+        "t2_gap": "curated_insufficient",
+        "token": "[REDACTED_SECRET]"
+      },
+      "rule_ids": [
+        "RAW-003"
+      ],
+      "sanitized": true,
+      "source_tier": "T3"
+    }
+  ],
+  "final_status": "completed",
+  "footer": {
+    "confidence": "low",
+    "denominator": "none",
+    "entity": "C004_t2_gap_allows_t3",
+    "exclusions": [],
+    "filters": [
+      "time_range:last_month"
+    ],
+    "freshness": "snapshot_2024_01",
+    "inclusions": [
+      "fixture_semantic_catalog"
+    ],
+    "limitations": "raw exploration fallback requires high-risk review warning (ANS-003); offline synthetic reviewer",
+    "method": "governed_analysis_offline_golden",
+    "owner": "domain_owner_example",
+    "provenance_refs": [
+      "evidence:scenario:C004_t2_gap_allows_t3"
+    ],
+    "quality": "fixture_snapshot",
+    "question": "scenario:C004_t2_gap_allows_t3",
+    "review_round": 1,
+    "segment": "all_regions",
+    "source_tier": "T3",
+    "time_range": "2024-01-01_to_2024-01-31"
+  },
+  "gate_decisions": [
+    {
+      "decision": null,
+      "exit": 0,
+      "gate": "subagent_review_gate"
+    },
+    {
+      "decision": null,
+      "exit": 0,
+      "gate": "stop_gate"
+    }
+  ],
+  "notes": [
+    "T3 evidence payload contains email/absolute-path/prefixed-secret canaries; the golden output pins the SANITIZED payload (SEC-003, PORT-001)."
+  ],
+  "p0_row": "T2 gap 已记录",
+  "policy_precheck": {
+    "evidence_refs": [
+      "policy:discover_read"
+    ],
+    "reason": "Request discover permitted under discover_read",
+    "recovery": "No action required",
+    "rule_ids": [
+      "SEC-001"
+    ],
+    "status": "pass"
+  },
+  "review": {
+    "candidate_sha": "b0f313035c02c0a382d85dbb6aca3964e41677db1582ca275f271da182474a7c",
+    "round": 1,
+    "status": "PASS"
+  },
+  "scenario": "C004_t2_gap_allows_t3",
+  "schema_version": "chatbi.conformance/golden/v1",
+  "source_tier": "T3",
+  "t1_adapter_evidence": {
+    "adapter_id": "fixture:semantic",
+    "content_sha256": "d552ee593b4b406b96e6f310894d745560574a0a96a532c35c3744f8344a10e9",
+    "error_category": null,
+    "evidence_source": "fixture",
+    "payload": {
+      "catalog_version": "fixture-1",
+      "description": "Synthetic semantic catalog for explicit test/example mode. No organizational facts, no credentials, no PII, no machine paths.",
+      "dimensions": [
+        {
+          "id": "fixture:dim:region",
+          "name": "Region",
+          "sql_template": "SELECT DISTINCT region FROM fixture_regions"
+        },
+        {
+          "id": "fixture:dim:product",
+          "name": "Product",
+          "sql_template": "SELECT DISTINCT product FROM fixture_products"
+        }
+      ],
+      "metrics": [
+        {
+          "description": "Synthetic revenue metric for fixture tests",
+          "dimensions": [
+            "fixture:dim:region",
+            "fixture:dim:product"
+          ],
+          "grain": "daily",
+          "id": "fixture:metric:revenue",
+          "name": "Revenue",
+          "sql_template": "SELECT SUM(amount) FROM fixture_orders WHERE ds BETWEEN {start_date} AND {end_date}"
+        },
+        {
+          "description": "Synthetic order count metric for fixture tests",
+          "dimensions": [
+            "fixture:dim:region"
+          ],
+          "grain": "daily",
+          "id": "fixture:metric:order_count",
+          "name": "Order Count",
+          "sql_template": "SELECT COUNT(*) FROM fixture_orders WHERE ds BETWEEN {start_date} AND {end_date}"
+        }
+      ],
+      "segments": [
+        {
+          "filter": "amount > 1000",
+          "id": "fixture:segment:high_value",
+          "name": "High Value Orders"
+        },
+        {
+          "filter": "is_returning = true",
+          "id": "fixture:segment:returning",
+          "name": "Returning Customers"
+        }
+      ]
+    },
+    "reason": "Fixture adapter returned synthetic discover evidence",
+    "recovery": "No action required",
+    "rule_ids": [
+      "PORT-001"
+    ],
+    "status": "ok"
+  },
+  "t1_catalog_hit": true,
+  "t2_called": true,
+  "t3_called": true,
+  "t3_raw_query_evidence": {
+    "adapter_id": "fixture:semantic",
+    "content_sha256": "e3224c449a13d0943af035b8ee28faa225a20e97138c7b4506dbd817e09edee8",
+    "error_category": null,
+    "evidence_source": "fixture",
+    "payload": {
+      "columns": [
+        "region",
+        "product",
+        "order_count",
+        "revenue"
+      ],
+      "description": "Synthetic warehouse snapshot for explicit test/example mode. Numbers are anchored to a fixed date and do not drift with the current date.",
+      "rows": [
+        {
+          "order_count": 10,
+          "product": "widget",
+          "region": "alpha",
+          "revenue": 1000
+        },
+        {
+          "order_count": 20,
+          "product": "gadget",
+          "region": "beta",
+          "revenue": 2000
+        },
+        {
+          "order_count": 5,
+          "product": "widget",
+          "region": "gamma",
+          "revenue": 500
+        }
+      ],
+      "snapshot_date": "2024-01-15",
+      "snapshot_version": "fixture-1",
+      "totals": {
+        "order_count": 35,
+        "revenue": 3500
+      }
+    },
+    "reason": "Fixture adapter returned synthetic query evidence",
+    "recovery": "No action required",
+    "rule_ids": [
+      "PORT-001"
+    ],
+    "status": "ok"
+  },
+  "workflow": "chatbi-analyze"
+}

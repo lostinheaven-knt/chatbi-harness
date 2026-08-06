@@ -1,0 +1,163 @@
+{
+  "candidate_sha": "26aa33fef4bca2bbca5e1b6a3fdae44edd80cb84e9c995db15f9497600244f2d",
+  "evidence_chain": [
+    {
+      "content_sha256": "e5dab714f9e625a3128944791f317fbfac82e31abae6d4b8d584d33b70551811",
+      "evidence_source": "semantic-layer",
+      "payload": {
+        "canonical_metric": null,
+        "entity": "order_count",
+        "gap": "coverage_incomplete"
+      },
+      "rule_ids": [
+        "SEM-001",
+        "SEM-002"
+      ],
+      "sanitized": false,
+      "source_tier": "T1"
+    },
+    {
+      "content_sha256": "67e3188e32c1ef2b1f842c13879ce7f756ff37668578683190e7130ce3e6b9aa",
+      "evidence_source": "curated-reference",
+      "payload": {
+        "curated_ref": "reference_example",
+        "entity": "order_count",
+        "t1_gap": "coverage_incomplete"
+      },
+      "rule_ids": [
+        "RAW-001",
+        "SRC-001"
+      ],
+      "sanitized": false,
+      "source_tier": "T2"
+    }
+  ],
+  "final_status": "completed",
+  "footer": {
+    "confidence": "medium",
+    "denominator": "none",
+    "entity": "C003_t1_gap_allows_t2",
+    "exclusions": [],
+    "filters": [
+      "time_range:last_month"
+    ],
+    "freshness": "current",
+    "inclusions": [
+      "fixture_semantic_catalog"
+    ],
+    "limitations": "offline synthetic reviewer contract",
+    "method": "governed_analysis_offline_golden",
+    "owner": "domain_owner_example",
+    "provenance_refs": [
+      "evidence:scenario:C003_t1_gap_allows_t2"
+    ],
+    "quality": "fixture_snapshot",
+    "question": "scenario:C003_t1_gap_allows_t2",
+    "review_round": 1,
+    "segment": "all_regions",
+    "source_tier": "T2",
+    "time_range": "2024-01-01_to_2024-01-31"
+  },
+  "gate_decisions": [
+    {
+      "decision": null,
+      "exit": 0,
+      "gate": "subagent_review_gate"
+    },
+    {
+      "decision": null,
+      "exit": 0,
+      "gate": "stop_gate"
+    }
+  ],
+  "notes": [
+    "T3 not called: T2 hit after the recorded T1 gap."
+  ],
+  "p0_row": "T1 gap 已记录",
+  "policy_precheck": {
+    "evidence_refs": [
+      "policy:discover_read"
+    ],
+    "reason": "Request discover permitted under discover_read",
+    "recovery": "No action required",
+    "rule_ids": [
+      "SEC-001"
+    ],
+    "status": "pass"
+  },
+  "review": {
+    "candidate_sha": "26aa33fef4bca2bbca5e1b6a3fdae44edd80cb84e9c995db15f9497600244f2d",
+    "round": 1,
+    "status": "PASS"
+  },
+  "scenario": "C003_t1_gap_allows_t2",
+  "schema_version": "chatbi.conformance/golden/v1",
+  "source_tier": "T2",
+  "t1_adapter_evidence": {
+    "adapter_id": "fixture:semantic",
+    "content_sha256": "d552ee593b4b406b96e6f310894d745560574a0a96a532c35c3744f8344a10e9",
+    "error_category": null,
+    "evidence_source": "fixture",
+    "payload": {
+      "catalog_version": "fixture-1",
+      "description": "Synthetic semantic catalog for explicit test/example mode. No organizational facts, no credentials, no PII, no machine paths.",
+      "dimensions": [
+        {
+          "id": "fixture:dim:region",
+          "name": "Region",
+          "sql_template": "SELECT DISTINCT region FROM fixture_regions"
+        },
+        {
+          "id": "fixture:dim:product",
+          "name": "Product",
+          "sql_template": "SELECT DISTINCT product FROM fixture_products"
+        }
+      ],
+      "metrics": [
+        {
+          "description": "Synthetic revenue metric for fixture tests",
+          "dimensions": [
+            "fixture:dim:region",
+            "fixture:dim:product"
+          ],
+          "grain": "daily",
+          "id": "fixture:metric:revenue",
+          "name": "Revenue",
+          "sql_template": "SELECT SUM(amount) FROM fixture_orders WHERE ds BETWEEN {start_date} AND {end_date}"
+        },
+        {
+          "description": "Synthetic order count metric for fixture tests",
+          "dimensions": [
+            "fixture:dim:region"
+          ],
+          "grain": "daily",
+          "id": "fixture:metric:order_count",
+          "name": "Order Count",
+          "sql_template": "SELECT COUNT(*) FROM fixture_orders WHERE ds BETWEEN {start_date} AND {end_date}"
+        }
+      ],
+      "segments": [
+        {
+          "filter": "amount > 1000",
+          "id": "fixture:segment:high_value",
+          "name": "High Value Orders"
+        },
+        {
+          "filter": "is_returning = true",
+          "id": "fixture:segment:returning",
+          "name": "Returning Customers"
+        }
+      ]
+    },
+    "reason": "Fixture adapter returned synthetic discover evidence",
+    "recovery": "No action required",
+    "rule_ids": [
+      "PORT-001"
+    ],
+    "status": "ok"
+  },
+  "t1_catalog_hit": true,
+  "t2_called": true,
+  "t3_called": false,
+  "workflow": "chatbi-analyze"
+}

@@ -1,0 +1,102 @@
+{
+  "final_status": "blocked",
+  "gate_decisions": [],
+  "git_full_history": {
+    "alias": "billing_app",
+    "component": "codebase_reader",
+    "content_sha256": "265921c782a1cf78a696810200f6b2d0e7e13959924cacfd4d0f6f109ec11817",
+    "error_category": "full_history_blocked",
+    "operation": "git_metadata",
+    "payload": {
+      "data": null,
+      "untrusted": true
+    },
+    "reason": "Full git history is not enabled by default; deep history requires a separate safety-deviation approval",
+    "recovery": "Obtain a safety-deviation approval for full_history mode before enabling deep commit history access",
+    "rule_ids": [
+      "SCOPE-002",
+      "SEC-003",
+      "HOOK-004"
+    ],
+    "status": "blocked"
+  },
+  "notes": [
+    "SCOPE-001/002: traversal ('..') and absolute targets are rejected by resolve_path_reference; git full-history mode is blocked (metadata-only).",
+    "Evidence uses alias + relative path; no machine absolute path leaves the codebase boundary."
+  ],
+  "p0_row": "外部 Codebase 路径逃逸",
+  "read_absolute": {
+    "alias": "billing_app",
+    "component": "codebase_reader",
+    "content_sha256": "28b2405955593405ee09880a8266235e11ccbd3b71187779c77e031e2e37f666",
+    "error_category": "path_rejected",
+    "operation": "read",
+    "payload": {
+      "data": {
+        "decision": {
+          "evidence_refs": [
+            "path:billing_app:target:absolute"
+          ],
+          "reason": "Absolute targets are not allowed",
+          "recovery": "Use a relative target within the configured root",
+          "rule_ids": [
+            "SCOPE-001",
+            "PORT-001",
+            "HOOK-004"
+          ],
+          "status": "block"
+        }
+      },
+      "untrusted": true
+    },
+    "reason": "Absolute targets are not allowed",
+    "recovery": "Use a relative target within the configured root",
+    "rule_ids": [
+      "SCOPE-001",
+      "PORT-001",
+      "HOOK-004"
+    ],
+    "status": "blocked"
+  },
+  "read_traversal": {
+    "alias": "billing_app",
+    "component": "codebase_reader",
+    "content_sha256": "a2f7a406df4fc4d6334e3c8f1b2a66f16c3bb638d5428f53304d4e8da81a9894",
+    "error_category": "path_rejected",
+    "operation": "read",
+    "payload": {
+      "data": {
+        "decision": {
+          "evidence_refs": [
+            "path:billing_app:../outside-secret=[REDACTED_SECRET]"
+          ],
+          "reason": "Parent traversal is not allowed in a target",
+          "recovery": "Use a normalized relative target without '..' components",
+          "rule_ids": [
+            "SCOPE-001",
+            "PORT-001",
+            "HOOK-004"
+          ],
+          "status": "block"
+        }
+      },
+      "untrusted": true
+    },
+    "reason": "Parent traversal is not allowed in a target",
+    "recovery": "Use a normalized relative target without '..' components",
+    "rule_ids": [
+      "SCOPE-001",
+      "PORT-001",
+      "HOOK-004"
+    ],
+    "status": "blocked"
+  },
+  "scenario": "C010_codebase_path_escape",
+  "schema_version": "chatbi.conformance/golden/v1",
+  "selection": {
+    "alias": "billing_app",
+    "status": "selected"
+  },
+  "source_tier": null,
+  "workflow": "chatbi-build-from-requirement"
+}

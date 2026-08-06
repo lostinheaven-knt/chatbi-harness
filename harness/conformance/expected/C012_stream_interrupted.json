@@ -1,0 +1,22 @@
+{
+  "completed_marker_written_before_resume": false,
+  "final_status": "completed",
+  "gate_decisions": [
+    {
+      "decision": null,
+      "exit": 0,
+      "gate": "subagent_review_gate_resume"
+    }
+  ],
+  "interrupted": true,
+  "notes": [
+    "The interrupted run was never marked successful; on resume the persisted review is revalidated and the gate delivers only then (cursor/resume semantics, deployment §6.3/§17)."
+  ],
+  "p0_row": "Runtime stream 中断",
+  "resume_mechanism": "state_fallback_keyed_by_session_id",
+  "resumed_review_present": true,
+  "scenario": "C012_stream_interrupted",
+  "schema_version": "chatbi.conformance/golden/v1",
+  "source_tier": null,
+  "workflow": "chatbi-analyze"
+}

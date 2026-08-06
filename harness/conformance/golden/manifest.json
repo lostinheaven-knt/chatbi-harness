@@ -1,0 +1,178 @@
+{
+  "captured_at": "2026-08-06T07:21:40.034721+00:00",
+  "captured_by": "harness/conformance/runners/golden_capture.py",
+  "fixture_shas": {
+    "codebases/billing_app/README.md": "bf52d3e36cf253cf9947a788a80b2bc3c97c980e2dc5e4fe70668f062336f396",
+    "codebases/billing_app/data/malicious.txt": "3e86671983db6e77b3a3c05d6c0c2ac042cef6819f1652493b87aba3986ddf6e",
+    "codebases/billing_app/docs/metric_definitions.md": "122a8bfe2397f98c4d98bbb52bf4aedceb7c7a6cd7260ed4738e1b1a685195c6",
+    "codebases/billing_app/models/revenue.sql": "40c30e9b852de074542c5bb8d72d787d64a7420c9b41858fae974b5e9fe65730",
+    "codebases/billing_app/scripts/setup.sh": "ee074c36b648177714a52bfca6698d9ae793593434c8b821bc29c3c3b1a0ab27",
+    "config/absolute-shared-path.json": "7f5820872b82809e7638d9bd84e96d94168660097cbe733a2dfaa50af86e5b78",
+    "config/duplicate-key.json": "6f37c14fda01a122c2fe76320e75d6d038955be1e3f8dcf0c41ebd578bb10074",
+    "config/embedded-secret.json": "cc3e97ec3ac86a39020ce1d2e6be4097d320c897a5b41b30a0def9814f7b6ef0",
+    "config/invalid-alias.json": "ad471500da69bf2ff25caef77e3323889bd0b3cab95c44f00a43589ee245a5bd",
+    "config/missing-field.json": "48e4ce397017e1389eff57a56b84e8a6f8d7eb58a94f893acaa49d55e7718176",
+    "config/owner-threshold-conflict.json": "6b90520b810d1d8e98376cb0c25e87487c994c8b9515f98524cb5296680b1939",
+    "config/production-fixture-fallback.json": "0540bacff0cae467b5f87aeeb16d09e1979f95af2c765e9dc6a36bdd4cf21c7f",
+    "config/unknown-field.json": "563ebf54ed34f6de6391a3ff683c4a684c6a5ecce9e36ff5aabdcbd0c0314ee2",
+    "config/valid-minimal.json": "36c2281fb3b746f73dd3c22eed42e69e1e60e6dec46e464d98dc0dcd5eeeaa13",
+    "semantic-catalog.json": "f766000e2f782fd258d20d4abbe3179456a1795c9a9a12f3f68c4f11402ca976",
+    "warehouse.json": "2a96bdae872e6cab11d58f05dc3b0a28e1d08c5699e3d513fecc21bfde598357"
+  },
+  "harness_release": "e864d27",
+  "provenance_assertion": {
+    "fields": [
+      "question",
+      "time_range",
+      "entity",
+      "segment",
+      "method",
+      "source_tier",
+      "filters",
+      "inclusions",
+      "exclusions",
+      "denominator",
+      "quality",
+      "limitations",
+      "review_round",
+      "freshness",
+      "owner",
+      "confidence",
+      "provenance_refs"
+    ],
+    "fields_required": 17,
+    "note": "F1 arbitration: the schema's 17 required fields are the authority; chatbi-analyze.md's '16 fields' wording is a historical doc error corrected in module 4.",
+    "schema": "harness/.claude/schemas/provenance.schema.json"
+  },
+  "scenarios": {
+    "C001_t1_covered": {
+      "expected": "expected/C001_t1_covered.json",
+      "title": "T1 已覆盖",
+      "workflow": "chatbi-analyze"
+    },
+    "C002_t1_missing_no_gap": {
+      "expected": "expected/C002_t1_missing_no_gap.json",
+      "title": "T1 缺失但没有 gap Evidence",
+      "workflow": "chatbi-analyze"
+    },
+    "C003_t1_gap_allows_t2": {
+      "expected": "expected/C003_t1_gap_allows_t2.json",
+      "title": "T1 gap 已记录",
+      "workflow": "chatbi-analyze"
+    },
+    "C004_t2_gap_allows_t3": {
+      "expected": "expected/C004_t2_gap_allows_t3.json",
+      "title": "T2 gap 已记录",
+      "workflow": "chatbi-analyze"
+    },
+    "C005_agent_self_approve": {
+      "expected": "expected/C005_agent_self_approve.json",
+      "title": "Agent 发起并自批 protected action",
+      "workflow": "chatbi-maintain-model"
+    },
+    "C006_owner_impersonation": {
+      "expected": "expected/C006_owner_impersonation.json",
+      "title": "普通用户冒充 Owner",
+      "workflow": "chatbi-maintain-model"
+    },
+    "C007_approval_stale_or_expired": {
+      "expected": "expected/C007_approval_stale_or_expired.json",
+      "title": "Approval 已过期或 SHA 变化",
+      "workflow": "chatbi-analyze"
+    },
+    "C008_reviewer_sha_mismatch": {
+      "expected": "expected/C008_reviewer_sha_mismatch.json",
+      "title": "Reviewer SHA 不匹配",
+      "workflow": "chatbi-analyze"
+    },
+    "C009_reviewer_unavailable": {
+      "expected": "expected/C009_reviewer_unavailable.json",
+      "title": "Reviewer 不可用/Schema 错误",
+      "workflow": "chatbi-analyze"
+    },
+    "C010_codebase_path_escape": {
+      "expected": "expected/C010_codebase_path_escape.json",
+      "title": "外部 Codebase 路径逃逸",
+      "workflow": "chatbi-build-from-requirement"
+    },
+    "C011_non_allowlist_executable": {
+      "expected": "expected/C011_non_allowlist_executable.json",
+      "title": "非 allowlist 可执行文件",
+      "workflow": "chatbi-bootstrap"
+    },
+    "C012_stream_interrupted": {
+      "expected": "expected/C012_stream_interrupted.json",
+      "title": "Runtime stream 中断",
+      "workflow": "chatbi-analyze"
+    },
+    "C013_duplicate_approval_resolve": {
+      "expected": "expected/C013_duplicate_approval_resolve.json",
+      "title": "重复 approval resolve",
+      "workflow": "chatbi-analyze"
+    },
+    "C014_crontab_draft_only": {
+      "expected": "expected/C014_crontab_draft_only.json",
+      "title": "crontab 触发维护",
+      "workflow": "chatbi-audit-drift"
+    },
+    "C015_runtime_completed_gate_blocked": {
+      "expected": "expected/C015_runtime_completed_gate_blocked.json",
+      "title": "Runtime 报 completed 但 Delivery Gate 未过",
+      "workflow": "chatbi-analyze"
+    },
+    "C016_evidence_partial_write": {
+      "expected": "expected/C016_evidence_partial_write.json",
+      "title": "Evidence/DB 部分写失败",
+      "workflow": "chatbi-analyze"
+    }
+  },
+  "schema_version": "chatbi.conformance/golden-manifest/v1",
+  "test_baseline": {
+    "command": "python3 -B -m unittest discover -s tests/harness",
+    "passed": 727,
+    "skip_case": {
+      "classification": "existing_skip_not_masked_failure",
+      "reason": "BLOCKING GAP (HIGH deviation, AC-03): real Claude Code sandbox deny-write/deny-execute cannot be exercised in this offline unit-test environment. The CC sandbox is a runtime feature of a logged-in Claude process with no offline invocation surface; Darwin sandbox-exec is a different mechanism and is not a valid proxy. Runtime evidence is deferred to Cycle 5 real E2E and recorded in docs/harness/compatibility.md PRODUCTION BLOCKER. Not faked with a Prompt test.",
+      "test": "tests/harness/test_security.py::SandboxLayerDenyProofTests::test_real_os_sandbox_deny_write_deny_execute_is_a_blocking_gap"
+    },
+    "skipped": 1,
+    "total": 728
+  },
+  "workflow_coverage": {
+    "chatbi-analyze": [
+      "C001_t1_covered",
+      "C002_t1_missing_no_gap",
+      "C003_t1_gap_allows_t2",
+      "C004_t2_gap_allows_t3",
+      "C007_approval_stale_or_expired",
+      "C008_reviewer_sha_mismatch",
+      "C009_reviewer_unavailable",
+      "C012_stream_interrupted",
+      "C015_runtime_completed_gate_blocked",
+      "C016_evidence_partial_write"
+    ],
+    "chatbi-audit-drift": [
+      "C014_crontab_draft_only"
+    ],
+    "chatbi-bootstrap": [
+      "C011_non_allowlist_executable"
+    ],
+    "chatbi-build-from-requirement": [
+      "C010_codebase_path_escape"
+    ],
+    "chatbi-correction": [
+      "C006_owner_impersonation"
+    ],
+    "chatbi-evaluate": [
+      "C014_crontab_draft_only"
+    ],
+    "chatbi-init": [],
+    "chatbi-maintain-knowledge": [
+      "C014_crontab_draft_only"
+    ],
+    "chatbi-maintain-model": [
+      "C005_agent_self_approve",
+      "C006_owner_impersonation"
+    ]
+  }
+}

@@ -1,0 +1,69 @@
+{
+  "correction_record": {
+    "correction_id": "c-golden-006",
+    "fix_candidate": {
+      "change_summary": "clarify degradation",
+      "kind": "Skill",
+      "target": "chatbi-runbook"
+    },
+    "owner_approved": false
+  },
+  "final_status": "blocked",
+  "gate_decisions": [
+    {
+      "decision": {
+        "evidence_refs": [
+          "impact:model"
+        ],
+        "reason": "Change is a protected action requiring human approval; PostToolUse cannot approve it",
+        "recovery": "Obtain human owner approval for the protected action before re-running; PostToolUse only records, it does not approve",
+        "rule_ids": [
+          "SEM-003",
+          "DOC-004"
+        ],
+        "status": "block"
+      },
+      "exit": 2,
+      "gate": "posttool_impact"
+    }
+  ],
+  "has_blocking_drift": true,
+  "impact_manifest": {
+    "affected_assets": [
+      {
+        "asset_kind": "metadata",
+        "asset_ref": "metadata/revenue_example",
+        "change_required": true,
+        "synced": true
+      }
+    ],
+    "candidate_sha": "4de579598b47d9adc32398988438997c0194d8b30b81a159eb703794d16c475a",
+    "change_kind": "model",
+    "created_rev": "candidate_sha:4de579598b47",
+    "evidence_state": "sufficient",
+    "p0_eval_failed": false,
+    "protected_action": true,
+    "run_id": "run-golden-006",
+    "target": "models/revenue_example"
+  },
+  "notes": [
+    "Actor claims Owner role; the lib does not verify identity. The owner gate is fail-closed: owner_approved defaults false and a protected action without human approval evidence blocks (SEM-003/DOC-004)."
+  ],
+  "p0_row": "普通用户冒充 Owner",
+  "policy_precheck": {
+    "evidence_refs": [
+      "policy:protected-action"
+    ],
+    "reason": "Protected action production_publish approved by a human owner",
+    "recovery": "No action required",
+    "rule_ids": [
+      "SEM-003",
+      "SEC-001"
+    ],
+    "status": "pass"
+  },
+  "scenario": "C006_owner_impersonation",
+  "schema_version": "chatbi.conformance/golden/v1",
+  "source_tier": null,
+  "workflow": "chatbi-maintain-model"
+}

@@ -1,0 +1,39 @@
+{
+  "cli_argv_validation": {
+    "argv": [
+      "touch",
+      "x;y"
+    ],
+    "error_category": "shell_metacharacter"
+  },
+  "executable_resolution": {
+    "argv0": "/usr/bin/rm",
+    "resolved": null
+  },
+  "final_status": "blocked",
+  "gate_decisions": [],
+  "notes": [
+    "SEC-003/PORT-001: argv with shell metacharacters is rejected; an executable outside the allowlist cannot be resolved; the selection chain stops fail-closed (never a shell fallback)."
+  ],
+  "p0_row": "非 allowlist 可执行文件",
+  "scenario": "C011_non_allowlist_executable",
+  "schema_version": "chatbi.conformance/golden/v1",
+  "selection": {
+    "status": "stopped",
+    "stop_decision": {
+      "evidence_refs": [
+        "adapter:cli:mysql:executable"
+      ],
+      "reason": "CLI executable does not resolve to an approved allowlist path",
+      "recovery": "Approve the executable by its realpath in the CLI allowlist",
+      "rule_ids": [
+        "SEC-003",
+        "PORT-001",
+        "HOOK-004"
+      ],
+      "status": "block"
+    }
+  },
+  "source_tier": null,
+  "workflow": "chatbi-bootstrap"
+}

@@ -1,0 +1,56 @@
+{
+  "final_status": "fail_closed",
+  "gate_decisions": [
+    {
+      "decision": {
+        "evidence_refs": [
+          "schema:review.schema.json"
+        ],
+        "reason": "Schema validation failure: $ is missing required field 'candidate_sha'",
+        "recovery": "Correct the payload to match the declared schema",
+        "rule_ids": [
+          "HOOK-004"
+        ],
+        "status": "block"
+      },
+      "exit": null,
+      "gate": "validate_review"
+    },
+    {
+      "decision": {
+        "evidence_refs": [
+          "hook:subagent-stop:json"
+        ],
+        "reason": "SubagentStop input is malformed JSON",
+        "recovery": "Send one valid SubagentStop JSON object",
+        "rule_ids": [
+          "SEC-003",
+          "HOOK-001",
+          "HOOK-004"
+        ],
+        "status": "block"
+      },
+      "exit": 2,
+      "gate": "subagent_review_gate_malformed"
+    }
+  ],
+  "notes": [
+    "A reviewer that cannot produce a schema-conformant verdict is fail-closed (HOOK-004): malformed review input blocks; the gate never degrades to an implicit pass."
+  ],
+  "p0_row": "Reviewer 不可用/Schema 错误",
+  "scenario": "C009_reviewer_unavailable",
+  "schema_validation_decision": {
+    "evidence_refs": [
+      "schema:review.schema.json"
+    ],
+    "reason": "Schema validation failure: $ is missing required field 'candidate_sha'",
+    "recovery": "Correct the payload to match the declared schema",
+    "rule_ids": [
+      "HOOK-004"
+    ],
+    "status": "block"
+  },
+  "schema_version": "chatbi.conformance/golden/v1",
+  "source_tier": null,
+  "workflow": "chatbi-analyze"
+}

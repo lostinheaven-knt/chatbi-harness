@@ -1,0 +1,47 @@
+{
+  "delivery_gate_passed": false,
+  "final_status": "blocked",
+  "gate_decisions": [
+    {
+      "decision": {
+        "evidence_refs": [
+          "review-gate:status"
+        ],
+        "reason": "Review status is BLOCKED; only PASS permits delivery",
+        "recovery": "Address every blocking finding and re-review the candidate",
+        "rule_ids": [
+          "REV-001",
+          "REV-003"
+        ],
+        "status": "block"
+      },
+      "exit": 2,
+      "gate": "subagent_review_gate"
+    },
+    {
+      "decision": {
+        "evidence_refs": [
+          "stop-gate:open-block-finding"
+        ],
+        "reason": "1 blocking finding(s) are open at stop time; delivery is not permitted",
+        "recovery": "Resolve every blocking finding and re-review before stopping for delivery",
+        "rule_ids": [
+          "REV-003",
+          "HOOK-001"
+        ],
+        "status": "block"
+      },
+      "exit": 2,
+      "gate": "stop_gate"
+    }
+  ],
+  "notes": [
+    "ADR-002: a runtime 'completed' marker is NOT ChatBI completion; the delivery gate (PASS + SHA match + no open block findings) is the only terminal authority. External status stays BLOCK."
+  ],
+  "p0_row": "Runtime 报 completed 但 Delivery Gate 未过",
+  "runtime_reported_completed": true,
+  "scenario": "C015_runtime_completed_gate_blocked",
+  "schema_version": "chatbi.conformance/golden/v1",
+  "source_tier": null,
+  "workflow": "chatbi-analyze"
+}

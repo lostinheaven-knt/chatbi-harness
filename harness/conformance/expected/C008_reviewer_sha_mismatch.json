@@ -1,0 +1,31 @@
+{
+  "current_candidate_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "final_status": "blocked",
+  "gate_decisions": [
+    {
+      "decision": {
+        "evidence_refs": [
+          "review-gate:stale-sha"
+        ],
+        "reason": "Review candidate_sha does not match the candidate currently under review",
+        "recovery": "Re-review the current candidate and emit a verdict bound to its SHA",
+        "rule_ids": [
+          "REV-001",
+          "REV-003"
+        ],
+        "status": "block"
+      },
+      "exit": 2,
+      "gate": "subagent_review_gate"
+    }
+  ],
+  "notes": [
+    "REV-001/REV-002: a PASS verdict is only valid for the exact candidate SHA; a mismatch blocks delivery."
+  ],
+  "p0_row": "Reviewer SHA 不匹配",
+  "scenario": "C008_reviewer_sha_mismatch",
+  "schema_version": "chatbi.conformance/golden/v1",
+  "source_tier": null,
+  "verdict_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "workflow": "chatbi-analyze"
+}

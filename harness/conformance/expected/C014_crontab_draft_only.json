@@ -1,0 +1,31 @@
+{
+  "crontab_portability": "pass",
+  "crontab_portability_decision": null,
+  "draft_only": true,
+  "drift_route": {
+    "reason": "model-doc lint field -> re-author + lint + co-locate",
+    "route_class": "C",
+    "target_command": "/chatbi-maintain-knowledge"
+  },
+  "evaluation_run": {
+    "all_passed": true,
+    "content_hash": "e6b6ff1b10341f6405e6d849419a5487e7094616a03e3953263c67f7b12f07dd",
+    "fbk_003_statement": "Evaluation success is evidence; it does NOT prove silent failure is eliminated and is NOT a guarantee of absolute correctness (FBK-003).",
+    "passed_count": 2,
+    "run_id": "run-golden-014",
+    "threshold_owner_confirmed": true,
+    "total_count": 2
+  },
+  "final_status": "completed",
+  "gate_decisions": [],
+  "lint_issue_count": 13,
+  "no_scheduler_shipped": true,
+  "notes": [
+    "The shipped crontab template is a PORTABLE draft (PORT-001 guard passes); no scheduler ships and no maintenance auto-publishes (FR-2 non-goal). Drift routing and the evaluation record are deterministic lib slices of the maintenance chain."
+  ],
+  "p0_row": "crontab 触发维护",
+  "scenario": "C014_crontab_draft_only",
+  "schema_version": "chatbi.conformance/golden/v1",
+  "source_tier": null,
+  "workflow": "chatbi-audit-drift"
+}

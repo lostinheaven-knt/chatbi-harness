@@ -1,0 +1,20 @@
+{
+  "final_approval_state": {
+    "approval_id": "ap-golden-013",
+    "candidate_sha": "82144f14d62009072df2ff05cd81f5e52998f5772db377856e43accfa2f2f997",
+    "resolution": "approved",
+    "status": "resolved"
+  },
+  "final_status": "completed",
+  "first_resolve": "applied",
+  "gate_decisions": [],
+  "notes": [
+    "The approval state machine is idempotent by key (approval_id + candidate_sha): a duplicate resolve never re-executes the protected action (deployment §17 row 6)."
+  ],
+  "p0_row": "重复 approval resolve",
+  "scenario": "C013_duplicate_approval_resolve",
+  "schema_version": "chatbi.conformance/golden/v1",
+  "second_resolve": "conflict_noop",
+  "source_tier": null,
+  "workflow": "chatbi-analyze"
+}

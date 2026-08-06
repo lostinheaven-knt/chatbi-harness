@@ -1,0 +1,89 @@
+{
+  "final_status": "stopped",
+  "gate_decisions": [],
+  "notes": [
+    "T1 semantic layer has no entry for the entity and no gap evidence was recorded; degradation to T2 is not permitted (SEM-001)."
+  ],
+  "p0_row": "T1 缺失但没有 gap Evidence",
+  "policy_precheck": {
+    "evidence_refs": [
+      "policy:discover_read"
+    ],
+    "reason": "Request discover permitted under discover_read",
+    "recovery": "No action required",
+    "rule_ids": [
+      "SEC-001"
+    ],
+    "status": "pass"
+  },
+  "scenario": "C002_t1_missing_no_gap",
+  "schema_version": "chatbi.conformance/golden/v1",
+  "source_tier": null,
+  "t1_adapter_evidence": {
+    "adapter_id": "fixture:semantic",
+    "content_sha256": "d552ee593b4b406b96e6f310894d745560574a0a96a532c35c3744f8344a10e9",
+    "error_category": null,
+    "evidence_source": "fixture",
+    "payload": {
+      "catalog_version": "fixture-1",
+      "description": "Synthetic semantic catalog for explicit test/example mode. No organizational facts, no credentials, no PII, no machine paths.",
+      "dimensions": [
+        {
+          "id": "fixture:dim:region",
+          "name": "Region",
+          "sql_template": "SELECT DISTINCT region FROM fixture_regions"
+        },
+        {
+          "id": "fixture:dim:product",
+          "name": "Product",
+          "sql_template": "SELECT DISTINCT product FROM fixture_products"
+        }
+      ],
+      "metrics": [
+        {
+          "description": "Synthetic revenue metric for fixture tests",
+          "dimensions": [
+            "fixture:dim:region",
+            "fixture:dim:product"
+          ],
+          "grain": "daily",
+          "id": "fixture:metric:revenue",
+          "name": "Revenue",
+          "sql_template": "SELECT SUM(amount) FROM fixture_orders WHERE ds BETWEEN {start_date} AND {end_date}"
+        },
+        {
+          "description": "Synthetic order count metric for fixture tests",
+          "dimensions": [
+            "fixture:dim:region"
+          ],
+          "grain": "daily",
+          "id": "fixture:metric:order_count",
+          "name": "Order Count",
+          "sql_template": "SELECT COUNT(*) FROM fixture_orders WHERE ds BETWEEN {start_date} AND {end_date}"
+        }
+      ],
+      "segments": [
+        {
+          "filter": "amount > 1000",
+          "id": "fixture:segment:high_value",
+          "name": "High Value Orders"
+        },
+        {
+          "filter": "is_returning = true",
+          "id": "fixture:segment:returning",
+          "name": "Returning Customers"
+        }
+      ]
+    },
+    "reason": "Fixture adapter returned synthetic discover evidence",
+    "recovery": "No action required",
+    "rule_ids": [
+      "PORT-001"
+    ],
+    "status": "ok"
+  },
+  "t1_catalog_hit": false,
+  "t2_called": false,
+  "t3_called": false,
+  "workflow": "chatbi-analyze"
+}

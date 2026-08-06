@@ -1,0 +1,63 @@
+{
+  "blocking_reasons": [
+    "protected action requires human approval"
+  ],
+  "final_status": "blocked",
+  "gate_decisions": [
+    {
+      "decision": {
+        "evidence_refs": [
+          "impact:model"
+        ],
+        "reason": "Change is a protected action requiring human approval; PostToolUse cannot approve it",
+        "recovery": "Obtain human owner approval for the protected action before re-running; PostToolUse only records, it does not approve",
+        "rule_ids": [
+          "SEM-003",
+          "DOC-004"
+        ],
+        "status": "block"
+      },
+      "exit": 2,
+      "gate": "posttool_impact"
+    }
+  ],
+  "has_blocking_drift": true,
+  "impact_manifest": {
+    "affected_assets": [
+      {
+        "asset_kind": "metadata",
+        "asset_ref": "metadata/revenue_example",
+        "change_required": true,
+        "synced": true
+      }
+    ],
+    "candidate_sha": "4de579598b47d9adc32398988438997c0194d8b30b81a159eb703794d16c475a",
+    "change_kind": "model",
+    "created_rev": "candidate_sha:4de579598b47",
+    "evidence_state": "sufficient",
+    "p0_eval_failed": false,
+    "protected_action": true,
+    "run_id": "run-golden-005",
+    "target": "models/revenue_example"
+  },
+  "notes": [
+    "SEM-003: an agent may draft but never approve a protected action; the policy check blocks first, the impact gate blocks again (fail-closed, no single point of trust)."
+  ],
+  "p0_row": "Agent 发起并自批 protected action",
+  "policy_precheck": {
+    "evidence_refs": [
+      "policy:protected-action"
+    ],
+    "reason": "Agent cannot self-approve protected action production_publish; drafting is not approval",
+    "recovery": "Wait for the human owner to approve the protected action",
+    "rule_ids": [
+      "SEM-003",
+      "SEC-001"
+    ],
+    "status": "block"
+  },
+  "scenario": "C005_agent_self_approve",
+  "schema_version": "chatbi.conformance/golden/v1",
+  "source_tier": null,
+  "workflow": "chatbi-maintain-model"
+}

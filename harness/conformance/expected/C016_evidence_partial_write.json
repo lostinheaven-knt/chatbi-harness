@@ -1,0 +1,20 @@
+{
+  "artifacts_after_failed_write": [],
+  "artifacts_before": [],
+  "final_status": "completed",
+  "gate_decisions": [],
+  "index_applied_only_after_success": true,
+  "notes": [
+    "write_state is atomic (temp + os.replace) and raises on non-serializable payloads; a failed write leaves no partial file and no success claim (deployment §17 row 12, ADR-003)."
+  ],
+  "p0_row": "Evidence/DB 部分写失败",
+  "partial_write": {
+    "false_success": false,
+    "raised": "TypeError"
+  },
+  "scenario": "C016_evidence_partial_write",
+  "schema_version": "chatbi.conformance/golden/v1",
+  "source_tier": null,
+  "tmp_cleanup": true,
+  "workflow": "chatbi-analyze"
+}
