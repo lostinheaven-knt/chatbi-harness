@@ -1,0 +1,44 @@
+# chatbi.harness/v1 — governed knowledge-reference maintenance (design §4.2)
+schema_version: chatbi.harness/v1
+workflow_id: chatbi-maintain-knowledge
+workflow_version: 1
+title: "Governed knowledge-reference maintenance (lint + co-location)"
+description: "parse reference request, lint against DOC-002/003, capture machine citation metadata, route downstream model impact to /chatbi-maintain-model"
+entry:
+  command: chatbi-maintain-knowledge
+  argument_hint: "[reference-path-or-request-json]"
+steps:
+  - id: parse_request
+    executor: deterministic
+    when: "always"
+  - id: lint
+    executor: deterministic
+    function: chatbi_governance.knowledge.lint_reference
+    when: "always"
+    outputs: [lint_issues]
+  - id: codebase_crosscheck
+    executor: runtime_native
+    function: chatbi_governance.adapters.select_codebase_reader   # declarative: machine citation metadata via git
+    when: "always"
+  - id: route
+    executor: deterministic
+    # Route-ready only when lint yields no issues; downstream model impact routes to maintain-model.
+    when: "always"
+gates:
+  delivery:
+    rule_ids: [DOC-001, DOC-002, DOC-003]
+    terminal_only: false
+requirements:
+  persistent_session: required
+  evidence_store: required
+capabilities:
+  realpath_sandbox: required
+prompts:
+  - {name: knowledge_skill, path: skills/chatbi-knowledge/SKILL.md, sha256: "bd14ca3961af4309a2b8c5f4824d12858e94e00f354f9368bfc73bd548482baa"}
+tools: {allow: [Read, Grep, Glob, Bash, Edit, Write], deny: [Task, WebFetch, WebSearch]}
+evidence:
+  root: ".chatbi"
+  schema_versions: {}
+routes:
+  downstream_model_impact: chatbi-maintain-model
+compatibility: {deprecated_fields: [], migration: null}

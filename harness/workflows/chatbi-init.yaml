@@ -1,0 +1,62 @@
+# chatbi.harness/v1 — installation readiness diagnostic (design §4.2)
+schema_version: chatbi.harness/v1
+workflow_id: chatbi-init
+workflow_version: 1
+title: "Installation readiness diagnostic"
+description: "diagnose one ChatBI Harness installation: domain contract, configuration, paths, capability probe, nine checks, machine-readable readiness report"
+entry:
+  command: chatbi-init
+  argument_hint: "[shared-config] [confirmed-local-config] [confirmed-claude-executable]"
+steps:
+  - id: args_parse
+    executor: deterministic
+    when: "always"
+  - id: shared_config
+    executor: deterministic
+    function: chatbi_governance.config.load_effective_config
+    when: "always"
+  - id: local_config
+    executor: deterministic
+    # Only confirmed local bindings; absolute paths and .. rejected upstream.
+    when: "always"
+  - id: domain_contract
+    executor: deterministic
+    function: chatbi_governance.gates.validate_domain_contract
+    when: "always"
+  - id: config_validation
+    executor: deterministic
+    function: chatbi_governance.config.load_effective_config
+    when: "always"
+  - id: path_resolution
+    executor: deterministic
+    function: chatbi_governance.paths.resolve_path_reference
+    when: "always"
+  - id: capability_probe
+    executor: runtime_native
+    # Runtime injects its capability probe; no probe -> unavailable, fail-closed.
+    when: "always"
+  - id: checks_assembly
+    executor: deterministic
+    function: chatbi_governance.diagnostics.run_init_diagnostic
+    when: "always"
+    outputs: [diagnostic_result]
+  - id: report
+    executor: deterministic
+    # Present exact top-level status PASS/WARN/BLOCKED; production_ready stays false.
+    when: "always"
+gates:
+  delivery:
+    rule_ids: [PORT-001, SEC-003, HOOK-004]
+    terminal_only: false
+requirements:
+  persistent_session: optional
+  evidence_store: required
+capabilities:
+  realpath_sandbox: required
+prompts: []
+tools: {allow: [Read, Grep, Glob, Bash], deny: [Write, Edit]}
+evidence:
+  root: ".chatbi"
+  schema_versions: {}
+routes: {}
+compatibility: {deprecated_fields: [], migration: null}

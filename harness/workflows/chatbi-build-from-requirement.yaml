@@ -1,0 +1,69 @@
+# chatbi.harness/v1 — requirement-driven build orchestrator (design §4.2)
+schema_version: chatbi.harness/v1
+workflow_id: chatbi-build-from-requirement
+workflow_version: 1
+title: "Requirement-driven build plan + chained model maintenance"
+description: "parse requirement, clarify, cross-check external codebases (SRC-002), classify findings, derive a layered build plan, chain /chatbi-maintain-model per model in dependency order, hand off to /chatbi-analyze"
+entry:
+  command: chatbi-build-from-requirement
+  argument_hint: "[requirement-text] [granularity] [segment]"
+steps:
+  - id: parse_requirement
+    executor: agent_with_tools
+    when: "always"
+    tools: {allow: [Read, Grep, Glob], deny: [Write, Edit, Bash]}
+  - id: clarify
+    executor: agent_with_tools
+    when: "request.field_is(granularity, undefined)"
+    tools: {allow: [Read, Grep, Glob], deny: [Write, Edit, Bash]}
+  - id: src002_crosscheck
+    executor: agent_with_tools
+    function: chatbi_governance.adapters.select_codebase_reader   # declarative: read-only external codebase access
+    when: "always"
+    tools: {allow: [Read, Grep, Glob], deny: [Write, Edit, Bash]}
+    outputs: [crosscheck_evidence]
+  - id: classify_src002
+    executor: deterministic
+    function: chatbi_governance.drift.classify_src002_finding
+    when: "always"
+    outputs: [src002_route]
+  - id: derive_plan
+    executor: deterministic
+    function: chatbi_governance.build_plan.validate_build_plan
+    when: "always"
+    outputs: [build_plan]
+  - id: chain_maintain_model
+    executor: runtime_native
+    # Per-model handoff in dependency order via the routes table; never authors governed content itself.
+    when: "always"
+  - id: handoff_analyze
+    executor: runtime_native
+    when: "always"
+gates:
+  delivery:
+    rule_ids: [SRC-002, SEM-003, REQ-001, REQ-002]
+    terminal_only: false
+requirements:
+  persistent_session: required
+  resumable_run: optional
+  human_approval: protected_actions
+  evidence_store: required
+capabilities:
+  realpath_sandbox: required
+  tool_allowlist: required
+prompts:
+  - {name: build_skill, path: skills/chatbi-build/SKILL.md, sha256: "18126fde0e89e92a5bf29efb18bf8944adab66d2122bc5615a9498f3642e37c9"}
+tools: {allow: [Read, Grep, Glob, Bash, Edit, Write], deny: [Task, WebFetch, WebSearch]}
+evidence:
+  root: ".chatbi"
+  schema_versions: {build-plan: build-plan.schema.json}
+routes:
+  src002_route_a: owner                 # ask domain owner for clarification (REQ-001/002)
+  src002_route_b: chatbi-bootstrap
+  src002_route_c: chatbi-maintain-knowledge
+  src002_route_d: chatbi-correction
+  src002_route_e: chatbi-maintain-model
+  src002_route_f: none                  # PASS: proceed with build chain
+  chain_maintain_model: chatbi-maintain-model
+  handoff_analyze: chatbi-analyze
+compatibility: {deprecated_fields: [], migration: null}

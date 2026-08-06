@@ -1,0 +1,43 @@
+# chatbi.harness/v1 — structured correction record (design §4.2)
+schema_version: chatbi.harness/v1
+workflow_id: chatbi-correction
+workflow_version: 1
+title: "Structured correction record (dual candidate, owner merge)"
+description: "parse correction request, build dual candidate (fix + eval case, FBK-002), human owner approval before merge, record"
+entry:
+  command: chatbi-correction
+  argument_hint: "[correction-request-json]"
+steps:
+  - id: parse_request
+    executor: deterministic
+    when: "always"
+  - id: build_correction
+    executor: deterministic
+    function: chatbi_governance.evaluator.build_correction_record
+    when: "always"
+    outputs: [correction_candidates]
+  - id: owner_approval
+    executor: human_approval
+    # A correction touching a canonical metric definition needs human approval (SEM-003); merge only after PASS.
+    when: "owner.pending(approve_metric)"
+  - id: record
+    executor: deterministic
+    function: chatbi_governance.evaluator.validate_correction
+    when: "always"
+gates:
+  delivery:
+    rule_ids: [FBK-001, FBK-002, FBK-003, ABL-001]
+    terminal_only: false
+requirements:
+  persistent_session: optional
+  human_approval: protected_actions
+  evidence_store: required
+capabilities:
+  realpath_sandbox: optional
+prompts: []
+tools: {allow: [Read, Grep, Glob, Bash, Edit, Write], deny: [Task, WebFetch, WebSearch]}
+evidence:
+  root: ".chatbi"
+  schema_versions: {correction: correction.schema.json}
+routes: {}
+compatibility: {deprecated_fields: [], migration: null}

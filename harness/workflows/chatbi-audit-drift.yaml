@@ -1,0 +1,59 @@
+# chatbi.harness/v1 — FM-STALE drift audit (design §4.2)
+schema_version: chatbi.harness/v1
+workflow_id: chatbi-audit-drift
+workflow_version: 1
+title: "FM-STALE drift audit (detect + report + STOP)"
+description: "parse scope args, load source-inventory baseline (missing = STOP), detect three drift classes, classify with route table, persist drift report, STOP for human triage"
+entry:
+  command: chatbi-audit-drift
+  argument_hint: "[--scope references|sources|models|all] [--since <sha>]"
+steps:
+  - id: args
+    executor: deterministic
+    when: "always"
+  - id: inventory_baseline
+    executor: deterministic
+    function: chatbi_governance.bootstrap.read_source_inventory
+    # Missing baseline is a hard STOP (class-2 precondition; bootstrap not run).
+    when: "always"
+    outputs: [baseline]
+  - id: detect
+    executor: deterministic
+    function: chatbi_governance.drift.detect_drift
+    when: "always"
+    outputs: [drift_candidates]
+  - id: classify
+    executor: deterministic
+    function: chatbi_governance.drift.classify_finding
+    when: "always"
+    outputs: [route_decisions]
+  - id: persist
+    executor: runtime_native
+    function: chatbi_governance.harness_state.write_state   # command-layer persistence of drift_report.json
+    when: "always"
+  - id: report
+    executor: deterministic
+    # Report validated against drift-report.schema.json before return.
+    when: "always"
+gates:
+  delivery:
+    rule_ids: [HOOK-001, PORT-001]
+    terminal_only: false
+requirements:
+  persistent_session: required
+  evidence_store: required
+capabilities:
+  realpath_sandbox: required
+prompts:
+  - {name: governance_skill, path: skills/chatbi-governance/SKILL.md, sha256: "0d9c3a54f69991b2b87fd05dd28de0970e47c65032cf485c43edfea2910b9724"}
+tools: {allow: [Read, Grep, Glob, Bash], deny: [Write, Edit]}
+evidence:
+  root: ".chatbi"
+  schema_versions: {drift-report: drift-report.schema.json}
+routes:
+  drift_route_b: chatbi-bootstrap
+  drift_route_c: chatbi-maintain-knowledge
+  drift_route_d: chatbi-correction
+  drift_route_e: chatbi-maintain-model
+  drift_route_triage: owner
+compatibility: {deprecated_fields: [], migration: null}

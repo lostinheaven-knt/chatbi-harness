@@ -1,0 +1,54 @@
+# chatbi.harness/v1 — governed model/semantic maintenance (design §4.2)
+schema_version: chatbi.harness/v1
+workflow_id: chatbi-maintain-model
+workflow_version: 1
+title: "Governed model/semantic maintenance (impact + full sync)"
+description: "parse model-change request, build impact manifest, DOC-004 full-sync gate, registry append after sync, protected actions to human owner"
+entry:
+  command: chatbi-maintain-model
+  argument_hint: "[model-change-request-json]"
+steps:
+  - id: parse_request
+    executor: deterministic
+    when: "always"
+  - id: impact_manifest
+    executor: deterministic
+    function: chatbi_governance.impact.build_impact_manifest
+    when: "always"
+    outputs: [impact_manifest]
+  - id: sync_gate
+    executor: deterministic
+    # DOC-004: every affected asset synced, evidence sufficient, no P0 eval failure; uncertain = fail-closed.
+    when: "always"
+  - id: registry_append
+    executor: deterministic
+    function: chatbi_governance.build_plan.append_model_registry
+    when: "always"
+  - id: protected_check
+    executor: deterministic
+    function: chatbi_governance.policy.decide
+    when: "always"
+    outputs: [policy_decision]
+  - id: owner_approval
+    executor: human_approval
+    when: "owner.pending(approve_metric)"
+gates:
+  delivery:
+    rule_ids: [DOC-001, DOC-004, SEM-003, REV-003]
+    terminal_only: false
+requirements:
+  persistent_session: required
+  resumable_run: required
+  human_approval: protected_actions
+  evidence_store: required
+capabilities:
+  realpath_sandbox: required
+  tool_allowlist: required
+prompts:
+  - {name: maintenance_skill, path: skills/chatbi-maintenance/SKILL.md, sha256: "620ea4811369256ee987dc987e3fe6e9a5d120a169d593d7b976d0a72d276113"}
+tools: {allow: [Read, Grep, Glob, Bash, Edit, Write], deny: [Task, WebFetch, WebSearch]}
+evidence:
+  root: ".chatbi"
+  schema_versions: {impact-manifest: impact-manifest.schema.json}
+routes: {}
+compatibility: {deprecated_fields: [], migration: null}

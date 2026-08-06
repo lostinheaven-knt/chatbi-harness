@@ -1,0 +1,81 @@
+# chatbi.harness/v1 — governed analysis, 5-layer flow (design §4.3 full example)
+schema_version: chatbi.harness/v1
+workflow_id: chatbi-analyze
+workflow_version: 1
+title: "Governed analysis (5-layer flow)"
+description: "clarify -> T1 semantic layer -> evidence-backed T2 -> evidence-backed T3 -> independent PASS + gate delivery"
+entry:
+  command: chatbi-analyze
+  argument_hint: "[analysis-request-json]"
+steps:
+  - id: request_preflight
+    executor: deterministic
+    function: chatbi_governance.evidence.validate_request
+    when: "always"
+    outputs: [validated_request]
+  - id: clarify
+    executor: agent_with_tools
+    # Any key field of the request undefined -> STOP with the minimal clarifying question.
+    when: "request.field_is(segment, undefined)"
+    tools: {allow: [Read, Grep, Glob], deny: [Write, Edit, Bash]}
+  - id: t1_semantic
+    executor: agent_with_tools
+    function: chatbi_governance.adapters.select_adapter   # declarative: discover/compile the semantic layer
+    when: "always"
+    tools: {allow: [Read, Grep, Glob, Bash], deny: [Write, Edit]}
+    outputs: [t1_evidence]
+  - id: t2_curated
+    executor: agent_with_tools
+    when: "evidence.has_gap(\"T1\")"
+    tools: {allow: [Read, Grep, Glob, Bash], deny: [Write, Edit]}
+    outputs: [t2_evidence]
+  - id: t3_raw
+    executor: agent_with_tools
+    when: "evidence.has_gap(\"T2\")"
+    tools: {allow: [Read, Grep, Glob, Bash], deny: [Write, Edit]}
+    outputs: [t3_evidence]
+  - id: candidate_bind
+    executor: deterministic
+    function: chatbi_governance.evidence.compute_candidate_sha
+    when: "always"
+    outputs: [candidate_sha]
+  - id: candidate_review
+    executor: independent_reviewer
+    when: "always"
+    review_required: true
+    review_schema: review.schema.json
+  - id: delivery_gate
+    executor: deterministic
+    function: chatbi_governance.evidence.validate_review   # declarative: PASS + SHA match only
+    when: "always"
+    outputs: [delivery_decision]
+  - id: footer_assembly
+    executor: deterministic
+    function: chatbi_governance.evidence.validate_provenance
+    when: "delivery_decision.is_pass"
+    outputs: [provenance_footer]
+gates:
+  delivery:
+    rule_ids: [REV-001, REV-002, REV-003]
+    terminal_only: true            # run.completed only after this gate PASS (design §5.2)
+requirements:
+  persistent_session: required
+  resumable_run: required
+  independent_reviewer: required
+  human_approval: protected_actions
+  streaming: required
+  evidence_store: required
+capabilities:
+  realpath_sandbox: required
+  tool_allowlist: required
+prompts:
+  - {name: runbook, path: skills/chatbi-runbook/SKILL.md, sha256: "011eada4a66ae197527ab627438a801b8e1880ef165f5a631ebd6116556a0430"}
+  - {name: reviewer, path: agents/adversarial-reviewer.md, sha256: "8a2a6bf0ecbc0ee8143d5539941ce478a3ef535613720ed0a4380907af2c864f"}
+tools: {allow: [Read, Grep, Glob, Bash, Edit, Write], deny: [Task, WebFetch, WebSearch]}
+evidence:
+  root: ".chatbi"
+  schema_versions: {request: request.schema.json, review: review.schema.json, provenance: provenance.schema.json}
+routes:
+  on_candidate_missing_model: chatbi-maintain-model
+  handoff_after_delivery: none
+compatibility: {deprecated_fields: [], migration: null}

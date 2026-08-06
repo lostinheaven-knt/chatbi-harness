@@ -1,0 +1,51 @@
+# chatbi.harness/v1 — governed offline evaluation (design §4.2)
+schema_version: chatbi.harness/v1
+workflow_id: chatbi-evaluate
+workflow_version: 1
+title: "Governed offline evaluation (fixed suite, ground-truth isolation)"
+description: "parse evaluation request, load isolated ground truth, run the fixed suite, record EVAL-003 run, enforce the owner-confirmed release threshold, report"
+entry:
+  command: chatbi-evaluate
+  argument_hint: "[evaluation-request-json]"
+steps:
+  - id: parse_request
+    executor: deterministic
+    when: "always"
+  - id: ground_truth_load
+    executor: deterministic
+    function: chatbi_governance.evaluator.GroundTruthVault
+    when: "always"
+    outputs: [vault]
+  - id: run_suite
+    executor: runtime_native
+    # Fixed suite: high-freq + long-tail + five stress scenarios; unseen cases recorded separately.
+    when: "always"
+  - id: record
+    executor: deterministic
+    function: chatbi_governance.evaluator.build_evaluation_run
+    when: "always"
+    outputs: [evaluation_run]
+  - id: release_gate
+    executor: deterministic
+    function: chatbi_governance.evaluator.validate_evaluation   # declarative: EVAL-004 threshold from config, owner-confirmed
+    when: "always"
+  - id: report
+    executor: deterministic
+    when: "always"
+gates:
+  delivery:
+    rule_ids: [EVAL-003, EVAL-004, FBK-003]
+    terminal_only: false
+requirements:
+  persistent_session: required
+  evidence_store: required
+capabilities:
+  realpath_sandbox: required
+prompts:
+  - {name: evaluation_skill, path: skills/chatbi-evaluation/SKILL.md, sha256: "306f2969277f4e1d4d893dcb926224d99daa1efcc4b562732b0c189e6a6a0664"}
+tools: {allow: [Read, Grep, Glob, Bash, Edit, Write], deny: [Task, WebFetch, WebSearch]}
+evidence:
+  root: ".chatbi"
+  schema_versions: {evaluation: evaluation.schema.json}
+routes: {}
+compatibility: {deprecated_fields: [], migration: null}

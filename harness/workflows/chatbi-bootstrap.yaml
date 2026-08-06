@@ -1,0 +1,56 @@
+# chatbi.harness/v1 — from-zero Warehouse scaffold, MySQL-only v1 (design §4.2)
+schema_version: chatbi.harness/v1
+workflow_id: chatbi-bootstrap
+workflow_version: 1
+title: "From-zero Warehouse scaffold (MySQL-only v1)"
+description: "INFRA SETUP only: build mysql adapter spec, merge local config, select adapter, run mysql introspection, emit source inventory, scaffold dbt-mysql layout"
+entry:
+  command: chatbi-bootstrap
+  argument_hint: "[mysql-host] [mysql-port] [mysql-user] [source-db] [credential-env-name] [business-codebase-alias]"
+steps:
+  - id: mysql_spec
+    executor: deterministic
+    function: chatbi_governance.bootstrap.build_mysql_adapter_spec
+    when: "always"
+    outputs: [adapter_spec]
+  - id: merge_local_config
+    executor: deterministic
+    function: chatbi_governance.bootstrap.merge_local_config
+    when: "always"
+  - id: adapter_select
+    executor: deterministic
+    function: chatbi_governance.adapters.select_adapter
+    when: "always"
+    outputs: [adapter_choice]
+  - id: run_mysql
+    executor: runtime_native
+    # CLI adapter invocation; credentials are env-var NAMEs only, never values.
+    when: "always"
+  - id: source_inventory
+    executor: deterministic
+    function: chatbi_governance.bootstrap.read_source_inventory
+    when: "always"
+    outputs: [inventory]
+  - id: scaffold
+    executor: deterministic
+    when: "always"
+gates:
+  delivery:
+    rule_ids: [PORT-001, SEC-003, SEM-003]
+    terminal_only: false
+requirements:
+  persistent_session: required
+  resumable_run: optional
+  evidence_store: required
+capabilities:
+  realpath_sandbox: required
+  tool_allowlist: required
+prompts:
+  - {name: bootstrap_skill, path: skills/chatbi-bootstrap/SKILL.md, sha256: "d2b9d43bf4860f778b99c043ef77a08cf84e4b721502e6df7795c7abc62f8dfe"}
+tools: {allow: [Read, Grep, Glob, Bash, Edit, Write], deny: [Task, WebFetch, WebSearch]}
+evidence:
+  root: ".chatbi"
+  schema_versions: {chatbi-harness: chatbi-harness.schema.json}
+routes:
+  handoff_source_inventory: chatbi-maintain-model
+compatibility: {deprecated_fields: [], migration: null}

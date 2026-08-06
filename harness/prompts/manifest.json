@@ -1,0 +1,47 @@
+{
+  "schema_version": "chatbi.prompts/v1",
+  "description": "Registered prompt assets for the nine IR workflows (module 3, stage C-1). The prose bodies stay in .claude/skills and .claude/agents (Claude Code expression is not migrated yet, design §8.1/§9.1); this manifest pins their content hashes so IR prompt references are verifiable and drift is machine-detectable. Paths are Workspace-relative (PORT-001).",
+  "generated_at": "2026-08-06T00:00:00Z",
+  "entries": {
+    "skills/chatbi-bootstrap/SKILL.md": {
+      "kind": "skill",
+      "sha256": "d2b9d43bf4860f778b99c043ef77a08cf84e4b721502e6df7795c7abc62f8dfe",
+      "size": 15332
+    },
+    "skills/chatbi-build/SKILL.md": {
+      "kind": "skill",
+      "sha256": "18126fde0e89e92a5bf29efb18bf8944adab66d2122bc5615a9498f3642e37c9",
+      "size": 14145
+    },
+    "skills/chatbi-evaluation/SKILL.md": {
+      "kind": "skill",
+      "sha256": "306f2969277f4e1d4d893dcb926224d99daa1efcc4b562732b0c189e6a6a0664",
+      "size": 3644
+    },
+    "skills/chatbi-governance/SKILL.md": {
+      "kind": "skill",
+      "sha256": "0d9c3a54f69991b2b87fd05dd28de0970e47c65032cf485c43edfea2910b9724",
+      "size": 4867
+    },
+    "skills/chatbi-knowledge/SKILL.md": {
+      "kind": "skill",
+      "sha256": "bd14ca3961af4309a2b8c5f4824d12858e94e00f354f9368bfc73bd548482baa",
+      "size": 3056
+    },
+    "skills/chatbi-maintenance/SKILL.md": {
+      "kind": "skill",
+      "sha256": "620ea4811369256ee987dc987e3fe6e9a5d120a169d593d7b976d0a72d276113",
+      "size": 5630
+    },
+    "skills/chatbi-runbook/SKILL.md": {
+      "kind": "skill",
+      "sha256": "011eada4a66ae197527ab627438a801b8e1880ef165f5a631ebd6116556a0430",
+      "size": 15318
+    },
+    "agents/adversarial-reviewer.md": {
+      "kind": "agent",
+      "sha256": "8a2a6bf0ecbc0ee8143d5539941ce478a3ef535613720ed0a4380907af2c864f",
+      "size": 19114
+    }
+  }
+}

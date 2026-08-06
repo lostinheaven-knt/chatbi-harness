@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "event-envelope.schema.json",
+  "title": "ChatBI standard event envelope (chatbi.event/v1)",
+  "description": "Envelope contract for the 17 standard events (design §8.4). Events are monotonically numbered (event_index), replayable and deduplicable (event_id). run.completed may only be emitted after the Delivery Gate PASS: payload.gate == \"delivery\" and payload.decision == \"pass\" (design §8.4 last sentence, ADR-002). Enforced by chatbi_runtime_contract.events; this file documents the contract.",
+  "x-implemented-keywords": [
+    "type",
+    "required",
+    "properties",
+    "additionalProperties",
+    "enum",
+    "pattern",
+    "items"
+  ],
+  "type": "object",
+  "required": [
+    "schema_version",
+    "event_id",
+    "event_index",
+    "trace_id",
+    "session_id",
+    "run_id",
+    "workflow_id",
+    "step_id",
+    "event_type",
+    "occurred_at",
+    "runtime",
+    "payload",
+    "evidence_refs"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "chatbi.event/v1" },
+    "event_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._-]{1,128}$",
+      "description": "Globally unique; deduplication key."
+    },
+    "event_index": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Strictly monotonic within a run; replay/cursor key."
+    },
+    "trace_id": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,128}$" },
+    "session_id": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,128}$" },
+    "run_id": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,128}$" },
+    "workflow_id": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,128}$" },
+    "step_id": { "type": "string" },
+    "event_type": {
+      "type": "string",
+      "enum": [
+        "run.created",
+        "run.started",
+        "step.started",
+        "step.progress",
+        "tool.requested",
+        "tool.blocked",
+        "tool.completed",
+        "evidence.recorded",
+        "gate.blocked",
+        "approval.requested",
+        "approval.resolved",
+        "review.started",
+        "review.completed",
+        "run.paused",
+        "run.resumed",
+        "run.failed",
+        "run.completed"
+      ]
+    },
+    "occurred_at": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
+    },
+    "runtime": {
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": true,
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "native_run_id": { "type": "string" }
+      }
+    },
+    "payload": { "type": "object" },
+    "evidence_refs": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}
