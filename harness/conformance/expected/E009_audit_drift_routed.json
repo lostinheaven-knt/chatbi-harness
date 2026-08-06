@@ -1,0 +1,32 @@
+{
+  "candidate_count": 1,
+  "final_status": "completed",
+  "gate_decisions": [
+    {
+      "decision": {
+        "rule_ids": [
+          "HOOK-001",
+          "PORT-001"
+        ],
+        "status": "pass"
+      },
+      "gate": "delivery_gate"
+    }
+  ],
+  "notes": [
+    "A new source table is scope_expansion -> route B (/chatbi-bootstrap, human approval); the report is persisted at the command layer (F3) and no route targets the owner here."
+  ],
+  "p0_row": "audit-drift：scope_expansion → route B + 报告落盘",
+  "report_status": "complete",
+  "routes": [
+    {
+      "reason": "source scope expansion -> human approval + incremental introspect",
+      "route_class": "B",
+      "target_command": "/chatbi-bootstrap"
+    }
+  ],
+  "scenario": "E009_audit_drift_routed",
+  "schema_version": "chatbi.conformance/golden/v1",
+  "source_tier": null,
+  "workflow": "chatbi-audit-drift"
+}

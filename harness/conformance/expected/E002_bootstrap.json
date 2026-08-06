@@ -1,0 +1,27 @@
+{
+  "cli_allowlist_resolved": true,
+  "credential_env_name_only": true,
+  "final_status": "completed",
+  "gate_decisions": [
+    {
+      "decision": {
+        "rule_ids": [
+          "PORT-001",
+          "SEC-003",
+          "SEM-003"
+        ],
+        "status": "pass"
+      },
+      "gate": "delivery_gate"
+    }
+  ],
+  "inventory_table_count": 1,
+  "notes": [
+    "CLI adapter selection uses the kernel resolve_executable with the operator-confirmed allowlist (SEC-001/PORT-001); credentials are env-var NAMEs only (SEC-003)."
+  ],
+  "p0_row": "bootstrap：spec + CLI adapter 选择 + 源清单 + scaffold",
+  "scenario": "E002_bootstrap",
+  "schema_version": "chatbi.conformance/golden/v1",
+  "source_tier": null,
+  "workflow": "chatbi-bootstrap"
+}

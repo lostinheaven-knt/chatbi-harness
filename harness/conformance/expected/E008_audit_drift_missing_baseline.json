@@ -1,0 +1,13 @@
+{
+  "baseline_missing_stop": true,
+  "final_status": "stopped",
+  "gate_decisions": [],
+  "notes": [
+    "Missing baseline source_inventory.json is a hard STOP, not an unavailable candidate (class-2 precondition; bootstrap not run)."
+  ],
+  "p0_row": "audit-drift：缺源清单基线 = 硬 STOP",
+  "scenario": "E008_audit_drift_missing_baseline",
+  "schema_version": "chatbi.conformance/golden/v1",
+  "source_tier": null,
+  "workflow": "chatbi-audit-drift"
+}

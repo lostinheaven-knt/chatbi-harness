@@ -1,5 +1,5 @@
 {
-  "captured_at": "2026-08-06T07:21:40.034721+00:00",
+  "captured_at": "2026-08-06T12:47:48.301674+00:00",
   "captured_by": "harness/conformance/runners/golden_capture.py",
   "fixture_shas": {
     "codebases/billing_app/README.md": "bf52d3e36cf253cf9947a788a80b2bc3c97c980e2dc5e4fe70668f062336f396",
@@ -19,7 +19,7 @@
     "semantic-catalog.json": "f766000e2f782fd258d20d4abbe3179456a1795c9a9a12f3f68c4f11402ca976",
     "warehouse.json": "2a96bdae872e6cab11d58f05dc3b0a28e1d08c5699e3d513fecc21bfde598357"
   },
-  "harness_release": "e864d27",
+  "harness_release": "43c3c56",
   "provenance_assertion": {
     "fields": [
       "question",
@@ -124,6 +124,56 @@
       "expected": "expected/C016_evidence_partial_write.json",
       "title": "Evidence/DB 部分写失败",
       "workflow": "chatbi-analyze"
+    },
+    "E001_init": {
+      "expected": "expected/E001_init.json",
+      "title": "init 诊断全链（domain/config/paths/probe）",
+      "workflow": "chatbi-init"
+    },
+    "E002_bootstrap": {
+      "expected": "expected/E002_bootstrap.json",
+      "title": "bootstrap：spec + CLI adapter 选择 + 源清单 + scaffold",
+      "workflow": "chatbi-bootstrap"
+    },
+    "E003_bfr_route_f": {
+      "expected": "expected/E003_bfr_route_f.json",
+      "title": "build-from-requirement：SRC-002 route F + 校验过的 build plan",
+      "workflow": "chatbi-build-from-requirement"
+    },
+    "E004_maintain_model_approval": {
+      "expected": "expected/E004_maintain_model_approval.json",
+      "title": "maintain-model：DOC-004 全同步门 + SEM-003 owner 审批",
+      "workflow": "chatbi-maintain-model"
+    },
+    "E005_maintain_knowledge_lint": {
+      "expected": "expected/E005_maintain_knowledge_lint.json",
+      "title": "maintain-knowledge：DOC-002/003 引用 lint",
+      "workflow": "chatbi-maintain-knowledge"
+    },
+    "E006_evaluate_release": {
+      "expected": "expected/E006_evaluate_release.json",
+      "title": "evaluate：EVAL-004 owner 确认阈值 release gate",
+      "workflow": "chatbi-evaluate"
+    },
+    "E007_correction_approval": {
+      "expected": "expected/E007_correction_approval.json",
+      "title": "correction：双候选 FBK-002 + SEM-003 owner 审批",
+      "workflow": "chatbi-correction"
+    },
+    "E008_audit_drift_missing_baseline": {
+      "expected": "expected/E008_audit_drift_missing_baseline.json",
+      "title": "audit-drift：缺源清单基线 = 硬 STOP",
+      "workflow": "chatbi-audit-drift"
+    },
+    "E009_audit_drift_routed": {
+      "expected": "expected/E009_audit_drift_routed.json",
+      "title": "audit-drift：scope_expansion → route B + 报告落盘",
+      "workflow": "chatbi-audit-drift"
+    },
+    "E010_bfr_route_a": {
+      "expected": "expected/E010_bfr_route_a.json",
+      "title": "build-from-requirement：SRC-002 route A（owner 澄清 STOP）",
+      "workflow": "chatbi-build-from-requirement"
     }
   },
   "schema_version": "chatbi.conformance/golden-manifest/v1",
@@ -152,27 +202,38 @@
       "C016_evidence_partial_write"
     ],
     "chatbi-audit-drift": [
-      "C014_crontab_draft_only"
+      "C014_crontab_draft_only",
+      "E008_audit_drift_missing_baseline",
+      "E009_audit_drift_routed"
     ],
     "chatbi-bootstrap": [
-      "C011_non_allowlist_executable"
+      "C011_non_allowlist_executable",
+      "E002_bootstrap"
     ],
     "chatbi-build-from-requirement": [
-      "C010_codebase_path_escape"
+      "C010_codebase_path_escape",
+      "E003_bfr_route_f",
+      "E010_bfr_route_a"
     ],
     "chatbi-correction": [
-      "C006_owner_impersonation"
+      "C006_owner_impersonation",
+      "E007_correction_approval"
     ],
     "chatbi-evaluate": [
-      "C014_crontab_draft_only"
+      "C014_crontab_draft_only",
+      "E006_evaluate_release"
     ],
-    "chatbi-init": [],
+    "chatbi-init": [
+      "E001_init"
+    ],
     "chatbi-maintain-knowledge": [
-      "C014_crontab_draft_only"
+      "C014_crontab_draft_only",
+      "E005_maintain_knowledge_lint"
     ],
     "chatbi-maintain-model": [
       "C005_agent_self_approve",
-      "C006_owner_impersonation"
+      "C006_owner_impersonation",
+      "E004_maintain_model_approval"
     ]
   }
 }

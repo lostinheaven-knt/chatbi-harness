@@ -27,7 +27,29 @@ from chatbi_runtime_contract.capabilities import (
 )
 
 ADAPTER_NAME = "agno"
-ADAPTER_VERSION = "0.5.0"
+ADAPTER_VERSION = "0.6.0"
+
+#: Governance Kernel version this adapter is certified against (module 6,
+#: version separation — design §13 rule 2: a mismatched Kernel/Adapter
+#: combination must be refused at startup, fail-closed). The Kernel carries
+#: its own VERSION file (adjudication one).
+ADAPTER_COMPAT_KERNEL = "0.1.0"
+
+
+def check_kernel_compat(kernel_version: str | None) -> None:
+    """Startup compatibility gate: Kernel version vs the certified range.
+
+    Raises ``RuntimeError`` (fail-closed, design §13 rule 2) when the Kernel
+    version cannot be read or is not the certified one; ``doctor``/``build``
+    refuse the deployment instead of starting with an unknown combination.
+    """
+    if not kernel_version or kernel_version != ADAPTER_COMPAT_KERNEL:
+        raise RuntimeError(
+            f"adapter {ADAPTER_NAME}/{ADAPTER_VERSION} requires governance "
+            f"kernel {ADAPTER_COMPAT_KERNEL!r}, got "
+            f"{kernel_version!r}; refuse deployment (fail-closed, design "
+            "§13 rule 2)"
+        )
 
 #: impl-doc §6.2 Agno manifest draft. ``provided_by_adapter`` items are the
 #: components this module implements (reviewer/evidence index/sandbox reuse).
@@ -107,6 +129,53 @@ def probe_agno(
         capabilities=capabilities,
         issued_by=issued_by,
         generated_at=datetime.now(timezone.utc).isoformat(),
+    )
+
+
+#: design §14.2 acceptance items tracked for the Agno supported matrix
+#: (module 6, MR-E3). Every item must be attested by tests/evidence before
+#: the matrix may read "supported"; production certification is a SEPARATE
+#: approval and is never derived from this list (deployment design §14.2
+#: last row: synthetic tests cannot claim production-certified).
+SECTION_14_2_ITEMS = (
+    "baseline_no_regression",          # 761-test baseline (728+33) zero regression
+    "golden_equivalence",              # kernel-extraction Golden equivalence
+    "claude_target_conformance",       # Claude target P0 conformance
+    "agno_conformance_all_workflows",  # Agno P0 conformance: all 9 workflows
+    "same_fixture_conclusions",        # identical GateDecision/rule_ids/candidate_sha/evidence
+    "sse_recovery",                    # SSE/WS reconnect, event dedup, approval recovery
+    "jwt_role_mapping",                # JWT subject -> ChatBI Owner role mapping tests
+    "reviewer_independence",           # reviewer independence + read-only boundary
+    "realpath_sandbox",                # workspace realpath/alias/deny tests
+    "evidence_backward_compat",        # .chatbi Evidence backward compatibility
+    "hard_gates_listed",               # production hard gates listed; no synthetic certification
+)
+
+
+def supported_verdict(evidence: Mapping[str, bool]) -> tuple[str, str]:
+    """The Agno supported-matrix verdict from the §14.2 evidence items.
+
+    All items attested -> ``("supported", note)``; any missing ->
+    ``("partial", note)`` listing the missing items (fail-closed, FBK-003).
+    ``production_certified`` is always a separate boolean decided by the
+    production approval process — never derived here.
+    """
+    missing = [
+        item for item in SECTION_14_2_ITEMS
+        if not bool(evidence.get(item))
+    ]
+    if missing:
+        return (
+            "partial",
+            "Agno target is PARTIAL until every design-§14.2 item is "
+            f"attested; missing evidence: {', '.join(missing)}. Production "
+            "certification is a separate approval (never derived from "
+            "conformance tests).",
+        )
+    return (
+        "supported",
+        "all design-§14.2 items attested (module 6 acceptance); production "
+        "certification remains a separate approval.",
     )
 
 

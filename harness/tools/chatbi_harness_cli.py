@@ -215,12 +215,103 @@ def _build_claude(out_dir: Path, args: argparse.Namespace) -> int:
     return 0
 
 
-def _build_agno(out_dir: Path) -> int:
+def _read_harness_release() -> str:
+    """Best-effort harness release: the golden manifest's git short SHA."""
+    manifest_path = HARNESS_ROOT / "conformance" / "golden" / "manifest.json"
+    try:
+        data = json.loads(manifest_path.read_text(encoding="utf-8"))
+        release = data.get("harness_release")
+        if isinstance(release, str) and release:
+            return release
+    except (OSError, json.JSONDecodeError):
+        pass
+    return "dev"
+
+
+def _read_kernel_version(out_dir: Path) -> str:
+    version_path = out_dir / "packages" / "chatbi_governance" / "VERSION"
+    try:
+        version = version_path.read_text(encoding="utf-8").strip()
+        return version or "unknown"
+    except OSError:
+        return "unknown"
+
+
+def _evidence_from_report() -> dict[str, bool]:
+    """Attestation evidence derived from the frozen conformance report
+    (dist/agno/conformance-report.json) when present. All other §14.2 items
+    are attested by the operator/CI evidence manifest (honest: build stays
+    partial until attested)."""
+    evidence: dict[str, bool] = {}
+    report = DIST_ROOT / "agno" / "conformance-report.json"
+    if report.is_file():
+        try:
+            data = json.loads(report.read_text(encoding="utf-8"))
+            passed = data.get("status") == "pass"
+        except (OSError, json.JSONDecodeError, TypeError):
+            passed = False
+        evidence["agno_conformance_all_workflows"] = passed
+        evidence["same_fixture_conclusions"] = passed
+    return evidence
+
+
+def _merge_evidence_manifest(evidence: dict[str, bool],
+                             evidence_path: Path | None) -> dict[str, bool]:
+    """Merge an operator/CI attestation file (JSON map of §14.2 item -> bool)
+    over the computed evidence; a missing file is not an error (partial)."""
+    candidates = []
+    if evidence_path is not None:
+        candidates.append(evidence_path)
+    candidates.append(DIST_ROOT / "agno" / "evidence-manifest.json")
+    for path in candidates:
+        if path is None or not path.is_file():
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, TypeError):
+            continue
+        if isinstance(data, dict):
+            for key, value in data.items():
+                if isinstance(value, bool):
+                    evidence[str(key)] = value
+    return evidence
+
+
+def _workflow_registry_payload(out_dir: Path) -> list[dict[str, Any]]:
+    """workflow-registry.json: every IR workflow the agno target registers
+    (impl §8.5 / §10 — the runtime reads the IR, so the registry documents
+    the nine registered workflows with their entry commands)."""
+    from chatbi_harness_ir.loader import load_all
+
+    workflows = load_all(out_dir / "workflows")
+    return [
+        {
+            "workflow_id": workflow.workflow_id,
+            "workflow_version": workflow.workflow_version,
+            "title": workflow.title,
+            "entry_command": workflow.entry.command,
+        }
+        for workflow in sorted(workflows, key=lambda w: w.workflow_id)
+    ]
+
+
+def _build_agno(out_dir: Path, evidence_path: Path | None = None) -> int:
     """Build the auditable agno artifact: runtime + packages + workflows +
-    prompts + a runtime-manifest.json (design §8.5, MR-001)."""
-    from runtimes.agno.probe import ADAPTER_NAME, ADAPTER_VERSION, probe_agno
+    prompts + workflow-registry.json + portable crontab (packager, MR-E2)
+    + a runtime-manifest.json with the full design-§13 field set and the
+    supported matrix (rule 6)."""
+    from runtimes.agno.packager import pack_agno
+    from runtimes.agno.probe import (
+        ADAPTER_NAME,
+        ADAPTER_VERSION,
+        probe_agno,
+        supported_verdict,
+    )
 
     print(f"build agno -> {out_dir}")
+    # Supported-matrix evidence is read BEFORE the output dir is rebuilt
+    # (test-conformance writes its report into the same dir).
+    evidence = _merge_evidence_manifest(_evidence_from_report(), evidence_path)
     if out_dir.exists():
         shutil.rmtree(out_dir)
     for tree in ("runtimes", "packages", "workflows", "prompts", "schemas"):
@@ -236,30 +327,65 @@ def _build_agno(out_dir: Path) -> int:
         for error in errors:
             print(f"  - {error}")
         return 1
+
+    # Portable crontab artifact (MR-E2): equivalence to the shipped template
+    # is byte-level (diff empty), PORT-001 guarded, draft-only, no secrets.
+    template_path = (
+        HARNESS_ROOT / ".claude" / "schedules" / "chatbi-governance.crontab"
+    )
+    if not template_path.is_file():
+        print(f"FAIL: crontab template missing: {template_path}")
+        return 1
+    pack_agno(
+        out_dir=out_dir,
+        workflows_dir=out_dir / "workflows",
+        template_path=template_path,
+    )
+
+    # Supported matrix (design §13 rule 6 + §14.2): evidence -> verdict.
+    verdict, verdict_note = supported_verdict(evidence)
+
     runtime_manifest = {
         "schema_version": "chatbi.runtime-manifest/v1",
+        "harness_release": _read_harness_release(),
+        "ir_schema_version": "chatbi.harness/v1",
+        "kernel_version": _read_kernel_version(out_dir),
         "adapter_name": ADAPTER_NAME,
         "adapter_version": ADAPTER_VERSION,
         "runtime": manifest.runtime,
         "runtime_version": manifest.runtime_version,
+        "event_schema_version": "chatbi.event/v1",
+        "evidence_schema_versions": {
+            path.name: "chatbi.evidence/v1"
+            for path in sorted((out_dir / "schemas").glob("*.json"))
+        },
         "capabilities": {
             name: {"status": entry.status.value, "modes": list(entry.modes)}
             for name, entry in manifest.capabilities.items()
         },
         "supported_matrix": {
-            "fail_closed": {
-                "verdict": "partial",
-                "note": (
-                    "Agno target is PARTIAL until the stage-D P0 "
-                    "conformance suite passes and the module-6 acceptance "
-                    "list is satisfied (design §14.2, rule 5/6)."
-                ),
-            }
+            "verdict": verdict,
+            "note": verdict_note,
+            "production_certified": False,
+            "evidence": {
+                item: bool(evidence.get(item))
+                for item in probe_section_14_2_items()
+            },
         },
     }
     manifest_path = out_dir / "runtime-manifest.json"
     manifest_path.write_text(
         json.dumps(runtime_manifest, ensure_ascii=False, sort_keys=True, indent=2)
+        + "\n",
+        encoding="utf-8",
+    )
+    registry_path = out_dir / "workflow-registry.json"
+    registry_path.write_text(
+        json.dumps(
+            {"schema_version": "chatbi.workflow-registry/v1",
+             "workflows": _workflow_registry_payload(out_dir)},
+            ensure_ascii=False, sort_keys=True, indent=2,
+        )
         + "\n",
         encoding="utf-8",
     )
@@ -269,10 +395,22 @@ def _build_agno(out_dir: Path) -> int:
         display_path = manifest_path
     print(f"manifest: {display_path}")
     print(f"manifest: runtime={manifest.runtime} "
-          f"runtime_version={manifest.runtime_version}")
+          f"runtime_version={manifest.runtime_version} "
+          f"kernel={runtime_manifest['kernel_version']}")
+    print(f"supported_matrix: {verdict} "
+          f"(production_certified=false; §14.2 items: "
+          f"{sum(1 for v in evidence.values() if v)}/"
+          f"{len(probe_section_14_2_items())} attested)")
     print("build ok: auditable artifact produced; deploy is a separate "
           "authorized action (design §8.5).")
     return 0
+
+
+def probe_section_14_2_items() -> tuple[str, ...]:
+    """The §14.2 acceptance items (probe.py; system-python importable)."""
+    from runtimes.agno.probe import SECTION_14_2_ITEMS
+
+    return SECTION_14_2_ITEMS
 
 
 def cmd_build(args: argparse.Namespace) -> int:
@@ -280,7 +418,11 @@ def cmd_build(args: argparse.Namespace) -> int:
     if args.target == "agno":
         _require_agno_runtime()
         out_dir = Path(args.out).resolve() if args.out else DIST_ROOT / "agno"
-        return _build_agno(out_dir)
+        evidence_path = (
+            Path(args.evidence).resolve() if getattr(args, "evidence", None)
+            else None
+        )
+        return _build_agno(out_dir, evidence_path=evidence_path)
     out_dir = Path(args.out).resolve() if args.out else CLAUDE_DIST
     return _build_claude(out_dir, args)
 
@@ -525,6 +667,11 @@ def build_parser() -> argparse.ArgumentParser:
     build_parser.add_argument(
         "--out", metavar="PATH",
         help="artifact output directory (default harness/dist/<target>)",
+    )
+    build_parser.add_argument(
+        "--evidence", metavar="PATH",
+        help="agno only: §14.2 attestation JSON (item -> bool) for the "
+             "supported matrix",
     )
     build_parser.set_defaults(handler=cmd_build)
 

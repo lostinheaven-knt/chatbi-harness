@@ -1075,6 +1075,467 @@ def _c016_evidence_partial_write() -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# Module 6 (stage E): eight additional workflow scenarios (E001-E009)
+# ---------------------------------------------------------------------------
+# Each chain mirrors the module-6 Agno workflow registry wiring ONE-TO-ONE:
+# the same Governance-Kernel calls, the same IR delivery-gate rule vocabulary,
+# the same stop semantics. The Agno runner executes the REAL workflow for the
+# same scenario; compare.py judges equivalence on the shared keys. Any drift
+# between the chain and the adapter is a conformance failure (MR-003).
+
+
+def _contract_workspace(prefix: str) -> Path:
+    """A workspace satisfying the governed domain contract (validate_domain_
+    contract): the domain model + the five contract artifacts, with no rule-id
+    references (governed set == referenced set == empty -> PASS)."""
+    ws = Path(tempfile.mkdtemp(prefix=prefix))
+    docs = ws / "docs"
+    docs.mkdir(parents=True)
+    (docs / "chatbi-harness-domain-model.md").write_text(
+        "# ChatBI Harness Domain Model (conformance scaffold)\n",
+        encoding="utf-8",
+    )
+    for relative in (
+        "CLAUDE.md",
+        "CONTEXT.md",
+        ".claude/rules/00-domain-contract.md",
+        ".claude/rules/10-security.md",
+        ".claude/rules/20-completion.md",
+    ):
+        target = ws / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("# conformance contract scaffold\n", encoding="utf-8")
+    return ws
+
+
+def _agno_probe_snapshot() -> "CapabilitySnapshot":
+    """The module-6 Agno capability snapshot (mirrors workflow_registry's
+    ``_agno_capability_snapshot``) — injected into run_init_diagnostic on the
+    chain side so both targets run the identical diagnostic. The Kernel
+    snapshot vocabulary is Claude-shaped (doctor statuses / adapter id
+    grammar), so the honest Agno projection uses doctor_status=pass with an
+    empty adapter set."""
+    from chatbi_harness.diagnostics import CapabilitySnapshot
+
+    return CapabilitySnapshot(
+        claude_available=False,
+        claude_version=None,
+        doctor_status="pass",
+        logged_in=None,
+        sandbox_available=None,
+        available_adapters=(),
+        evidence_source="synthetic",
+    )
+
+
+def _delivery_decision(status: str, rule_ids: list[str]) -> dict[str, Any]:
+    """Normalized delivery-gate decision shape shared by chain and runner."""
+    return {"gate": "delivery_gate",
+            "decision": {"status": status, "rule_ids": rule_ids}}
+
+
+def _e001_init() -> dict[str, Any]:
+    """chatbi-init: full diagnostic chain (domain contract -> config -> paths
+    -> capability probe -> checks). The Agno-side runtime is NOT Claude Code,
+    so the Claude-shaped checks (claude_version / login / sandbox / adapters)
+    honestly block — the delivery gate blocks with the IR rule list
+    (PORT-001/SEC-003/HOOK-004), identical on both targets. The workspace is
+    injected explicitly (module-6 additive kernel parameter) so the chain and
+    the adapter diagnose the SAME workspace."""
+    from chatbi_harness.diagnostics import run_init_diagnostic
+
+    ws = _contract_workspace("golden-e001-")
+    # The shared config lives INSIDE the workspace and is referenced by a
+    # workspace-relative path (the Kernel diagnostic rejects absolute paths,
+    # SCOPE-001/PORT-001) — same contract the adapter enforces.
+    config_dir = ws / ".claude"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / "chatbi-harness.json").write_bytes(
+        (FIXTURES_ROOT / "config" / "valid-minimal.json").read_bytes()
+    )
+    result = run_init_diagnostic(
+        Path(".claude/chatbi-harness.json"), None,
+        probe=_agno_probe_snapshot, workspace_root=ws,
+    )
+    status = result.status
+    blocked = status == "BLOCKED"
+    check_ids = [check.check_id for check in result.checks]
+    return {
+        "schema_version": SCENARIO_SCHEMA_VERSION,
+        "scenario": "E001_init",
+        "workflow": "chatbi-init",
+        "p0_row": "init 诊断全链（domain/config/paths/probe）",
+        "final_status": "blocked" if blocked else "completed",
+        "source_tier": None,
+        "diagnostic_status": status,
+        "production_ready": result.production_ready,
+        "diagnostic_check_ids": check_ids,
+        "gate_decisions": [
+            _delivery_decision(
+                "block" if blocked else "pass",
+                ["PORT-001", "SEC-003", "HOOK-004"],
+            )
+        ],
+        "notes": [
+            "The diagnostic runs the FULL check chain (domain contract -> "
+            "config -> paths -> capability probe -> governance checks) against "
+            "the injected workspace; the Claude-shaped checks honestly block "
+            "on the Agno runtime (claude_version/login/sandbox/adapters), so "
+            "init stays BLOCKED and production_ready stays False.",
+        ],
+    }
+
+
+def _e002_bootstrap() -> dict[str, Any]:
+    """chatbi-bootstrap: mysql spec -> local config merge -> CLI adapter
+    selection (resolve_executable + operator-confirmed allowlist) -> source
+    inventory -> scaffold."""
+    from chatbi_harness.bootstrap import (
+        build_mysql_adapter_spec,
+        merge_local_config,
+        read_source_inventory,
+    )
+
+    ws = _contract_workspace("golden-e002-")
+    spec = build_mysql_adapter_spec(
+        "db.example.internal", 3306, "reader",
+        database="dw", credential_env_name="DB_PW",
+    )
+    merged = merge_local_config(None, cli_adapters={"mysql": "cli_adapters.mysql"})
+    bin_dir = ws / "bin"
+    bin_dir.mkdir()
+    mysql = bin_dir / "mysql"
+    mysql.write_text("#!/bin/sh\n", encoding="utf-8")
+    mysql.chmod(0o755)
+    exe = resolve_executable("mysql", (str(mysql),))
+    selected = exe is not None
+    inventory_path = ws / ".chatbi" / "bootstrap" / "source_inventory.json"
+    inventory_path.parent.mkdir(parents=True, exist_ok=True)
+    inventory_path.write_text(json.dumps({
+        "schema_version": 1,
+        "source_database": "dw",
+        "tables": [{"name": "orders",
+                    "columns": [{"name": "id", "data_type": "int",
+                                 "is_primary_key": True}]}],
+    }), encoding="utf-8")
+    inventory = read_source_inventory(inventory_path)
+    table_count = len(inventory.tables)
+    return {
+        "schema_version": SCENARIO_SCHEMA_VERSION,
+        "scenario": "E002_bootstrap",
+        "workflow": "chatbi-bootstrap",
+        "p0_row": "bootstrap：spec + CLI adapter 选择 + 源清单 + scaffold",
+        "final_status": "completed",
+        "source_tier": None,
+        "cli_allowlist_resolved": selected,
+        "credential_env_name_only": spec["credential_env_names"] == ["DB_PW"],
+        "inventory_table_count": table_count,
+        "gate_decisions": [_delivery_decision("pass",
+            ["PORT-001", "SEC-003", "SEM-003"])],
+        "notes": [
+            "CLI adapter selection uses the kernel resolve_executable with the "
+            "operator-confirmed allowlist (SEC-001/PORT-001); credentials are "
+            "env-var NAMEs only (SEC-003).",
+        ],
+    }
+
+
+def _e010_bfr_route_a() -> dict[str, Any]:
+    """chatbi-build-from-requirement: SRC-002 cross-check BLOCKED -> route A
+    (ask the domain owner, REQ-001/002) — the build chain stops before any
+    delivery, even when a plan was derived (MEDIUM-2 fix: the route-A branch
+    must BLOCK; the owner adjudication precedes the build chain)."""
+    from chatbi_harness.adapters.codebase_reader import CodebaseEvidence
+    from chatbi_harness.drift import classify_src002_finding
+
+    evidence = CodebaseEvidence(
+        component="codebase_reader",
+        produced_at="2026-01-01T00:00:00Z",
+        operation="read",
+        alias="biz",
+        status="blocked",
+        content_sha256="f" * 64,
+        rule_ids=("SRC-002",),
+        reason="alias/path unresolved for external codebase",
+        recovery="Ask the domain owner for the correct alias/path",
+    )
+    route = classify_src002_finding(evidence)
+    return {
+        "schema_version": SCENARIO_SCHEMA_VERSION,
+        "scenario": "E010_bfr_route_a",
+        "workflow": "chatbi-build-from-requirement",
+        "p0_row": "build-from-requirement：SRC-002 route A（owner 澄清 STOP）",
+        "final_status": "blocked",
+        "source_tier": None,
+        "src002_route": route.to_dict(),
+        "gate_decisions": [_delivery_decision("block",
+            ["SRC-002", "SEM-003", "REQ-001", "REQ-002"])],
+        "notes": [
+            "Route A (blocked cross-check) requires domain-owner "
+            "adjudication before the build chain may proceed (REQ-001/002); "
+            "the delivery gate blocks with the IR rule vocabulary.",
+        ],
+    }
+
+
+def _e003_bfr_route_f() -> dict[str, Any]:
+    """chatbi-build-from-requirement: parse -> src002 crosscheck (vacuous) ->
+    classify route F (PASS) -> validated build plan -> chain ready."""
+    from chatbi_harness.adapters.codebase_reader import CodebaseEvidence
+    from chatbi_harness.build_plan import (
+        BuildPlan,
+        build_model_entry,
+        validate_build_plan,
+    )
+    from chatbi_harness.drift import classify_src002_finding
+
+    evidence = CodebaseEvidence(
+        component="codebase_reader",
+        produced_at="2026-01-01T00:00:00Z",
+        operation="stat",
+        alias="",
+        status="ok",
+        content_sha256="e" * 64,
+        rule_ids=("SRC-002",),
+        reason="no business codebases configured; crosscheck is vacuous",
+        recovery="No action required",
+    )
+    route = classify_src002_finding(evidence)
+    entry = build_model_entry(
+        name="model_a", layer="dwd", change_kind="model",
+        created_rev="dev", owner="operator",
+    )
+    plan = BuildPlan(schema_version=1, session_id="ses-e003",
+                     models=(entry,))
+    validate_build_plan(plan, layer_rules=(), known_models=frozenset())
+    return {
+        "schema_version": SCENARIO_SCHEMA_VERSION,
+        "scenario": "E003_bfr_route_f",
+        "workflow": "chatbi-build-from-requirement",
+        "p0_row": "build-from-requirement：SRC-002 route F + 校验过的 build plan",
+        "final_status": "completed",
+        "source_tier": None,
+        "src002_route": route.to_dict(),
+        "plan_models": [m["name"] for m in plan.to_dict()["models"]],
+        "gate_decisions": [_delivery_decision("pass",
+            ["SRC-002", "SEM-003", "REQ-001", "REQ-002"])],
+        "notes": [
+            "Route F (PASS) proceeds with the build chain; the plan passes the "
+            "kernel validate_build_plan (topology/alias/SEM-003 consistency).",
+        ],
+    }
+
+
+def _e004_maintain_model_approval() -> dict[str, Any]:
+    """chatbi-maintain-model: impact manifest -> DOC-004 sync gate -> protected
+    action -> human-owner approval pending (SEM-003)."""
+    from chatbi_harness.impact import AffectedAsset, build_impact_manifest
+
+    ws = _contract_workspace("golden-e004-")
+    manifest = build_impact_manifest(
+        run_id="run-e004", change_kind="model", target="model_a",
+        affected_assets=[AffectedAsset("semantic", "models/model_a",
+                                       change_required=True, synced=True)],
+        evidence_state="sufficient", p0_eval_failed=False,
+        protected_action=True, candidate_payload={"change": "redefine"},
+        created_rev="dev",
+    )
+    decision = decide(
+        load_effective_config(_minimal_config_path(), None),
+        PolicyRequest(request_type="approve_metric",
+                      target_entity="model_a", actor="operator",
+                      purpose="governed protected action"),
+    )
+    protected = decision.rule_ids == ("SEM-003", "SEC-001")
+    return {
+        "schema_version": SCENARIO_SCHEMA_VERSION,
+        "scenario": "E004_maintain_model_approval",
+        "workflow": "chatbi-maintain-model",
+        "p0_row": "maintain-model：DOC-004 全同步门 + SEM-003 owner 审批",
+        "final_status": "paused",
+        "source_tier": None,
+        "impact_blocking": manifest.has_blocking_drift(),
+        "protected_pending": protected,
+        "policy_precheck": decision.to_dict(),
+        "gate_decisions": [],
+        "notes": [
+            "The protected action pauses for human-owner approval (SEM-003); "
+            "no delivery verdict exists before the approval resolves (paused, "
+            "not completed).",
+        ],
+    }
+
+
+def _e005_maintain_knowledge_lint() -> dict[str, Any]:
+    """chatbi-maintain-knowledge: reference lint against DOC-002/003 — a bad
+    reference blocks delivery with the lint rule set."""
+    bad_ref = (
+        "## Business context\n\nUse for: x\n## Citation\nno sha here\n"
+    )
+    issues = lint_reference(bad_ref)
+    return {
+        "schema_version": SCENARIO_SCHEMA_VERSION,
+        "scenario": "E005_maintain_knowledge_lint",
+        "workflow": "chatbi-maintain-knowledge",
+        "p0_row": "maintain-knowledge：DOC-002/003 引用 lint",
+        "final_status": "blocked",
+        "source_tier": None,
+        "lint_issue_count": len(issues),
+        "lint_fields": [issue.field for issue in issues],
+        "gate_decisions": [_delivery_decision("block",
+            ["DOC-002", "DOC-003"])],
+        "notes": [
+            "Lint issues block delivery (DOC-002/003); route-ready only when "
+            "lint yields no issues.",
+        ],
+    }
+
+
+def _e006_evaluate_release() -> dict[str, Any]:
+    """chatbi-evaluate: isolated ground truth -> fixed suite -> EVAL-003 record
+    -> owner-confirmed release gate (EVAL-004) -> report."""
+    from chatbi_harness.evaluator import validate_evaluation
+
+    vault = GroundTruthVault({"hf-1": {"value": 1}, "hf-2": {"value": 2}})
+    run = build_evaluation_run(
+        run_id="run-e006", skill_version="chatbi-evaluation@1",
+        model_id="model-example", vault=vault,
+        actuals={"hf-1": {"value": 1}, "hf-2": {"value": 2}},
+        tokens=500, latency_ms=120, seen=True,
+        threshold_owner_confirmed=True, release=True, release_threshold=0.9,
+        content_payload={"suite": "e006"},
+    )
+    validate_evaluation(run.to_dict())
+    return {
+        "schema_version": SCENARIO_SCHEMA_VERSION,
+        "scenario": "E006_evaluate_release",
+        "workflow": "chatbi-evaluate",
+        "p0_row": "evaluate：EVAL-004 owner 确认阈值 release gate",
+        "final_status": "completed",
+        "source_tier": None,
+        "evaluation_passed": run.all_passed,
+        "passed_count": run.passed_count,
+        "gate_decisions": [_delivery_decision("pass",
+            ["EVAL-003", "EVAL-004", "FBK-003"])],
+        "notes": [
+            "The release threshold is owner-confirmed (EVAL-004); the run "
+            "carries the FBK-003 statement (evaluation is evidence, not a "
+            "guarantee).",
+        ],
+    }
+
+
+def _e007_correction_approval() -> dict[str, Any]:
+    """chatbi-correction: dual candidate (fix + eval case, FBK-002) for a
+    canonical metric -> human-owner approval pending (SEM-003)."""
+    record = build_correction_record(
+        correction_id="corr-e007", fix_kind="model", fix_target="model_a",
+        fix_change_summary="repair the metric definition",
+        eval_case_assertion_id="hf-1", eval_case_expected_hash="a" * 64,
+        rule_ids=("FBK-001", "FBK-002"),
+    )
+    decision = decide(
+        load_effective_config(_minimal_config_path(), None),
+        PolicyRequest(request_type="approve_metric",
+                      target_entity="model_a", actor="operator",
+                      purpose="correction merge"),
+    )
+    protected = decision.rule_ids == ("SEM-003", "SEC-001")
+    return {
+        "schema_version": SCENARIO_SCHEMA_VERSION,
+        "scenario": "E007_correction_approval",
+        "workflow": "chatbi-correction",
+        "p0_row": "correction：双候选 FBK-002 + SEM-003 owner 审批",
+        "final_status": "paused",
+        "source_tier": None,
+        "dual_candidate": bool(record["fix_candidate"] and
+                               record["eval_case_candidate"]),
+        "owner_approved_default": record["owner_approved"] is False,
+        "protected_pending": protected,
+        "policy_precheck": decision.to_dict(),
+        "gate_decisions": [],
+        "notes": [
+            "A correction touching a canonical metric definition needs human "
+            "approval (SEM-003); owner_approved defaults False (no auto-merge).",
+        ],
+    }
+
+
+def _e008_audit_drift_missing_baseline() -> dict[str, Any]:
+    """chatbi-audit-drift: missing source-inventory baseline is a hard STOP
+    (class-2 precondition; bootstrap not run)."""
+    from chatbi_harness.bootstrap import read_source_inventory
+
+    ws = _contract_workspace("golden-e008-")
+    try:
+        read_source_inventory(ws / ".chatbi" / "bootstrap"
+                              / "source_inventory.json")
+        stopped = False
+    except GateError:
+        stopped = True
+    return {
+        "schema_version": SCENARIO_SCHEMA_VERSION,
+        "scenario": "E008_audit_drift_missing_baseline",
+        "workflow": "chatbi-audit-drift",
+        "p0_row": "audit-drift：缺源清单基线 = 硬 STOP",
+        "final_status": "stopped",
+        "source_tier": None,
+        "baseline_missing_stop": stopped,
+        "gate_decisions": [],
+        "notes": [
+            "Missing baseline source_inventory.json is a hard STOP, not an "
+            "unavailable candidate (class-2 precondition; bootstrap not run).",
+        ],
+    }
+
+
+def _e009_audit_drift_routed() -> dict[str, Any]:
+    """chatbi-audit-drift: baseline present + fresh inventory with a NEW table
+    -> scope_expansion candidate -> route B (/chatbi-bootstrap); report
+    persisted at the command layer (F3)."""
+    from chatbi_harness.bootstrap import SourceColumn, SourceInventory, SourceTable
+    from chatbi_harness.drift import DriftCandidate, classify_finding, detect_drift
+
+    ws = _contract_workspace("golden-e009-")
+    baseline_dir = ws / ".chatbi" / "bootstrap"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    (baseline_dir / "source_inventory.json").write_text(json.dumps({
+        "schema_version": 1, "source_database": "dw", "tables": [],
+    }), encoding="utf-8")
+    baseline = SourceInventory("dw", ())
+    fresh = SourceInventory("dw", (
+        SourceTable("orders", (
+            SourceColumn("id", "int", True),
+        )),
+    ))
+    config = load_effective_config(_minimal_config_path(), None)
+    report = detect_drift(ws, config, scope="all",
+                          fresh_source_inventory=fresh)
+    candidates = [
+        c for cls in report.classes.values() for c in cls
+    ]
+    routes = [classify_finding(c) for c in candidates]
+    return {
+        "schema_version": SCENARIO_SCHEMA_VERSION,
+        "scenario": "E009_audit_drift_routed",
+        "workflow": "chatbi-audit-drift",
+        "p0_row": "audit-drift：scope_expansion → route B + 报告落盘",
+        "final_status": "completed",
+        "source_tier": None,
+        "candidate_count": len(candidates),
+        "routes": [r.to_dict() for r in routes],
+        "report_status": report.status,
+        "gate_decisions": [_delivery_decision("pass",
+            ["HOOK-001", "PORT-001"])],
+        "notes": [
+            "A new source table is scope_expansion -> route B "
+            "(/chatbi-bootstrap, human approval); the report is persisted at "
+            "the command layer (F3) and no route targets the owner here.",
+        ],
+    }
+
+
+# ---------------------------------------------------------------------------
 # Registry, capture, verify
 # ---------------------------------------------------------------------------
 
@@ -1095,9 +1556,20 @@ _SCENARIO_REGISTRY: dict[str, Callable[[], dict[str, Any]]] = {
     "C014_crontab_draft_only": _c014_crontab_draft_only,
     "C015_runtime_completed_gate_blocked": _c015_runtime_completed_gate_blocked,
     "C016_evidence_partial_write": _c016_evidence_partial_write,
+    "E001_init": _e001_init,
+    "E002_bootstrap": _e002_bootstrap,
+    "E003_bfr_route_f": _e003_bfr_route_f,
+    "E010_bfr_route_a": _e010_bfr_route_a,
+    "E004_maintain_model_approval": _e004_maintain_model_approval,
+    "E005_maintain_knowledge_lint": _e005_maintain_knowledge_lint,
+    "E006_evaluate_release": _e006_evaluate_release,
+    "E007_correction_approval": _e007_correction_approval,
+    "E008_audit_drift_missing_baseline": _e008_audit_drift_missing_baseline,
+    "E009_audit_drift_routed": _e009_audit_drift_routed,
 }
 
-# workflow_coverage: 9 workflows -> deterministic slices captured in module 1.
+# workflow_coverage: 9 workflows -> deterministic slices captured in module 1
+# (+ module 6 E-scenarios for the eight generic workflows).
 WORKFLOW_COVERAGE = {
     "chatbi-analyze": [
         "C001_t1_covered", "C002_t1_missing_no_gap", "C003_t1_gap_allows_t2",
@@ -1106,15 +1578,25 @@ WORKFLOW_COVERAGE = {
         "C012_stream_interrupted", "C015_runtime_completed_gate_blocked",
         "C016_evidence_partial_write",
     ],
-    "chatbi-maintain-model": ["C005_agent_self_approve", "C006_owner_impersonation"],
-    "chatbi-maintain-knowledge": ["C014_crontab_draft_only"],   # lint slice
-    "chatbi-evaluate": ["C014_crontab_draft_only"],             # evaluation-run slice
-    "chatbi-correction": ["C006_owner_impersonation"],          # correction record
-    "chatbi-audit-drift": ["C014_crontab_draft_only"],          # drift route slice
-    "chatbi-build-from-requirement": ["C010_codebase_path_escape"],  # SRC-002 boundary
-    "chatbi-bootstrap": ["C011_non_allowlist_executable"],      # CLI boundary
-    "chatbi-init": [],  # no offline deterministic slice in module 1 (capability
-                        # probe requires injection; re-evaluated in module 2)
+    "chatbi-maintain-model": [
+        "C005_agent_self_approve", "C006_owner_impersonation",
+        "E004_maintain_model_approval",
+    ],
+    "chatbi-maintain-knowledge": [
+        "C014_crontab_draft_only", "E005_maintain_knowledge_lint",
+    ],
+    "chatbi-evaluate": ["C014_crontab_draft_only", "E006_evaluate_release"],
+    "chatbi-correction": ["C006_owner_impersonation", "E007_correction_approval"],
+    "chatbi-audit-drift": [
+        "C014_crontab_draft_only", "E008_audit_drift_missing_baseline",
+        "E009_audit_drift_routed",
+    ],
+    "chatbi-build-from-requirement": [
+        "C010_codebase_path_escape", "E003_bfr_route_f",
+        "E010_bfr_route_a",
+    ],
+    "chatbi-bootstrap": ["C011_non_allowlist_executable", "E002_bootstrap"],
+    "chatbi-init": ["E001_init"],
 }
 
 
@@ -1294,7 +1776,8 @@ def main(argv: list[str] | None = None) -> int:
         for line in diffs:
             print("  " + line)
         return 1
-    print("GOLDEN CONVERGED: all 16 scenarios match expected/*.json; "
+    print("GOLDEN CONVERGED: all "
+          f"{len(_SCENARIO_REGISTRY)} scenarios match expected/*.json; "
           "manifest invariants hold.")
     return 0
 

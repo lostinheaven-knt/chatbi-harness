@@ -1,0 +1,40 @@
+{
+  "diagnostic_check_ids": [
+    "domain_contract",
+    "configuration",
+    "paths",
+    "claude_version",
+    "claude_doctor",
+    "claude_login",
+    "sandbox",
+    "adapters",
+    "governance_owner",
+    "pii_policy",
+    "release_threshold",
+    "revision_evidence"
+  ],
+  "diagnostic_status": "BLOCKED",
+  "final_status": "blocked",
+  "gate_decisions": [
+    {
+      "decision": {
+        "rule_ids": [
+          "PORT-001",
+          "SEC-003",
+          "HOOK-004"
+        ],
+        "status": "block"
+      },
+      "gate": "delivery_gate"
+    }
+  ],
+  "notes": [
+    "The diagnostic runs the FULL check chain (domain contract -> config -> paths -> capability probe -> governance checks) against the injected workspace; the Claude-shaped checks honestly block on the Agno runtime (claude_version/login/sandbox/adapters), so init stays BLOCKED and production_ready stays False."
+  ],
+  "p0_row": "init 诊断全链（domain/config/paths/probe）",
+  "production_ready": false,
+  "scenario": "E001_init",
+  "schema_version": "chatbi.conformance/golden/v1",
+  "source_tier": null,
+  "workflow": "chatbi-init"
+}

@@ -1,0 +1,26 @@
+{
+  "evaluation_passed": true,
+  "final_status": "completed",
+  "gate_decisions": [
+    {
+      "decision": {
+        "rule_ids": [
+          "EVAL-003",
+          "EVAL-004",
+          "FBK-003"
+        ],
+        "status": "pass"
+      },
+      "gate": "delivery_gate"
+    }
+  ],
+  "notes": [
+    "The release threshold is owner-confirmed (EVAL-004); the run carries the FBK-003 statement (evaluation is evidence, not a guarantee)."
+  ],
+  "p0_row": "evaluate：EVAL-004 owner 确认阈值 release gate",
+  "passed_count": 2,
+  "scenario": "E006_evaluate_release",
+  "schema_version": "chatbi.conformance/golden/v1",
+  "source_tier": null,
+  "workflow": "chatbi-evaluate"
+}

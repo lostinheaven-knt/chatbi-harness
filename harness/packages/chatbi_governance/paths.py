@@ -365,10 +365,17 @@ def resolve_path_reference(
     *,
     alias: str,
     target: str,
+    workspace_root: Path | None = None,
 ) -> PortablePathReference:
-    """Resolve one explicit alias/target against the current validated roots."""
+    """Resolve one explicit alias/target against the current validated roots.
 
-    roots = _configured_roots(config)
+    ``workspace_root`` (module-6 additive): explicit root override passed to
+    :func:`_configured_roots` (server-side runtimes diagnose the run's
+    workspace instead of the process cwd); ``None`` keeps the historical
+    ``Path.cwd()`` derivation (zero behavior change).
+    """
+
+    roots = _configured_roots(config, workspace_root)
     if alias not in roots:
         raise _path_error(
             alias=alias,

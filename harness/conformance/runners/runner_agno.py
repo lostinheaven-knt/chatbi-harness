@@ -420,6 +420,187 @@ def coordinator_sha(coordinator: Any, action_type: str, actor: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Generic-workflow kind (module 6, MR-E1): the REAL Agno workflows
+# ---------------------------------------------------------------------------
+
+
+def _contract_workspace(prefix: str) -> Path:
+    """A workspace satisfying the governed domain contract (same scaffold as
+    the golden chains — both targets run the identical Kernel checks)."""
+    ws = Path(tempfile.mkdtemp(prefix=prefix))
+    docs = ws / "docs"
+    docs.mkdir(parents=True)
+    (docs / "chatbi-harness-domain-model.md").write_text(
+        "# ChatBI Harness Domain Model (conformance scaffold)\n",
+        encoding="utf-8",
+    )
+    for relative in (
+        "CLAUDE.md",
+        "CONTEXT.md",
+        ".claude/rules/00-domain-contract.md",
+        ".claude/rules/10-security.md",
+        ".claude/rules/20-completion.md",
+    ):
+        target = ws / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("# conformance contract scaffold\n", encoding="utf-8")
+    return ws
+
+
+def _write_source_inventory(ws: Path, tables: list[dict]) -> Path:
+    path = ws / ".chatbi" / "bootstrap" / "source_inventory.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({
+        "schema_version": 1, "source_database": "dw", "tables": tables,
+    }), encoding="utf-8")
+    return path
+
+
+def _stub_generic_agent(step_id: str, payload: Mapping[str, Any],
+                        tool_policy: Any = None) -> dict[str, Any]:
+    """Scripted agent runner for the generic workflows (runtime_stubs)."""
+    if step_id == "parse_requirement":
+        return {
+            "status": "covered",
+            "message": "requirement parsed",
+            "models": [
+                {"name": "model_a", "layer": "dwd", "change_kind": "model",
+                 "upstream_deps": []},
+            ],
+        }
+    if step_id == "clarify":
+        return {"message": "Request fields are missing"}
+    if step_id == "src002_crosscheck":
+        return {
+            "status": "vacuous",
+            "evidence": {
+                "component": "codebase_reader",
+                "produced_at": "2026-01-01T00:00:00Z",
+                "operation": "stat",
+                "alias": "",
+                "status": "ok",
+                "content_sha256": "e" * 64,
+                "rule_ids": ["SRC-002"],
+                "reason": "no business codebases configured",
+            },
+        }
+    return {"status": "covered", "payload": {}}
+
+
+def _stub_bfr_route_a_agent(step_id: str, payload: Mapping[str, Any],
+                            tool_policy: Any = None) -> dict[str, Any]:
+    """Agent stub for E010: the SRC-002 cross-check comes back BLOCKED ->
+    route A (owner adjudication)."""
+    if step_id == "src002_crosscheck":
+        return {"status": "blocked", "evidence": {
+            "component": "codebase_reader",
+            "produced_at": "2026-01-01T00:00:00Z",
+            "operation": "read",
+            "alias": "biz",
+            "status": "blocked",
+            "content_sha256": "f" * 64,
+            "rule_ids": ["SRC-002"],
+            "reason": "alias/path unresolved for external codebase",
+            "recovery": "Ask the domain owner for the correct alias/path",
+        }}
+    return _stub_generic_agent(step_id, payload, tool_policy)
+
+
+def _stub_generic_native(workflow_id: str, step_id: str,
+                         ctx: Mapping[str, Any]) -> dict[str, Any]:
+    """Scripted native runner for the generic workflows (runtime_stubs).
+
+    Mirrors the deployer-wired live seams; live mode without a wired
+    native_runner is fail-closed (FBK-003)."""
+    if step_id == "run_mysql":
+        path = _write_source_inventory(Path(tempfile.mkdtemp(prefix="e-inv-")),
+                                       [{"name": "orders", "columns": [
+                                           {"name": "id", "data_type": "int",
+                                            "is_primary_key": True}]}])
+        return {"inventory_path": str(path)}
+    if step_id == "run_suite":
+        return {"actuals": {"hf-1": {"value": 1}, "hf-2": {"value": 2}}}
+    if step_id == "codebase_crosscheck":
+        return {"citation": {"alias": "biz", "revision": "abc123"}}
+    if step_id in ("chain_maintain_model", "handoff_analyze"):
+        return {"handoff": {"workflow": step_id}}
+    raise RuntimeError(
+        f"unexpected native step {workflow_id}/{step_id} (fail-closed)"
+    )
+
+
+def _run_generic_scenario(
+    *,
+    scenario_id: str,
+    workflow_id: str,
+    request: Mapping[str, Any],
+    p0_row: str,
+    notes: tuple[str, ...] = (),
+    setup: Callable[[Path], Mapping[str, Any]] | None = None,
+    agent_stub: Callable[..., Any] | None = None,
+) -> dict[str, Any]:
+    """Run one REAL module-6 Agno workflow (stubbed agent/native runners) in a
+    contract-valid workspace and normalize its result for compare.py."""
+    from runtimes.agno.app import create_chatbi_app
+
+    ws = _contract_workspace(f"agno-e-{scenario_id.lower()}-")
+    extra = setup(ws) if setup is not None else {}
+    merged_request = {**dict(request), **extra}
+    app_kwargs = {
+        "workflows_dir": HARNESS_ROOT / "workflows",
+        "workspace_root": ws,
+        "harness_release": "dev",
+        "agent_runner": agent_stub or _stub_generic_agent,
+        "native_runner": _stub_generic_native,
+        "harness_config_path": _FIXTURE_CONFIG,
+    }
+    # A setup may override the harness/local config (e.g. E010 needs a
+    # business codebase binding so the SRC-002 cross-check is not vacuous).
+    for key in ("harness_config_path", "local_config_path"):
+        if key in extra:
+            app_kwargs[key] = extra.pop(key)
+    app, comps = create_chatbi_app(**app_kwargs)
+    controller = comps["controller"]
+    result = controller.start_run(
+        request=merged_request,
+        workflow_id=workflow_id,
+        session_id=f"ses-{scenario_id.lower()}",
+    )
+    ctx = controller._ctxs.get(result["run_id"], {})
+    final_status = result.get("final_status")
+
+    out: dict[str, Any] = {
+        "schema_version": SCENARIO_SCHEMA_VERSION,
+        "scenario": scenario_id,
+        "workflow": workflow_id,
+        "p0_row": p0_row,
+        "final_status": final_status,
+        "source_tier": None,
+        "policy_precheck": ctx.get("policy_decision"),
+        "gate_decisions": [],
+        "notes": list(notes),
+    }
+    delivery = ctx.get("delivery")
+    if isinstance(delivery, Mapping) and delivery.get("status") in (
+        "pass", "block",
+    ):
+        out["gate_decisions"] = [{
+            "gate": "delivery_gate", "decision": delivery,
+        }]
+    if final_status == "stopped":
+        stop = ctx.get("stop") or {}
+        out["notes"].append(
+            f"stopped: {stop.get('reason')} — {stop.get('message', '')}"
+        )
+    elif final_status == "paused":
+        out["notes"].append(
+            "run paused for human-owner approval (SEM-003); the delivery "
+            "gate has no verdict before the approval resolves"
+        )
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Kernel-shared kind (module-6 workflows; runtime-independent by MR-003)
 # ---------------------------------------------------------------------------
 
@@ -441,6 +622,73 @@ def _run_kernel_shared_scenario(scenario_id: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Registry + entry point
 # ---------------------------------------------------------------------------
+
+def _setup_e002(ws: Path) -> dict[str, Any]:
+    """E002: operator-confirmed cli_allowlist with a temp mysql executable."""
+    bin_dir = ws / "bin"
+    bin_dir.mkdir()
+    mysql = bin_dir / "mysql"
+    mysql.write_text("#!/bin/sh\n", encoding="utf-8")
+    mysql.chmod(0o755)
+    return {"cli_allowlist": [str(mysql)]}
+
+
+def _setup_e001(ws: Path) -> dict[str, Any]:
+    """E001: the shared config lives INSIDE the workspace and is referenced
+    by a workspace-relative path (the Kernel diagnostic rejects absolute
+    paths, SCOPE-001/PORT-001)."""
+    config_dir = ws / ".claude"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / "chatbi-harness.json").write_bytes(
+        _FIXTURE_CONFIG.read_bytes()
+    )
+    return {"shared_config": ".claude/chatbi-harness.json"}
+
+
+def _setup_e009(ws: Path) -> dict[str, Any]:
+    """E009: empty baseline + fresh inventory with a NEW table."""
+    _write_source_inventory(ws, [])
+    return {"fresh_inventory": {
+        "schema_version": 1, "source_database": "dw",
+        "tables": [{"name": "orders", "columns": [
+            {"name": "id", "data_type": "int", "is_primary_key": True}]}],
+    }}
+
+
+def _setup_e010(ws: Path) -> dict[str, Any]:
+    """E010: a configured business codebase (path_bindings in the LOCAL
+    config, codebase dir OUTSIDE the workspace — non-overlapping roots) so
+    the SRC-002 cross-check is not vacuous and can come back BLOCKED."""
+    biz = Path(tempfile.mkdtemp(prefix="biz-"))
+    shared_dir = Path(tempfile.mkdtemp(prefix="e010-cfg-"))
+    shared = shared_dir / "chatbi-harness.json"
+    shared.write_text(json.dumps({
+        "schema_version": 1,
+        "workspace": {"id": "warehouse", "root": ".",
+                      "allow_candidate_writes": True,
+                      "protected_actions": ["approve_metric",
+                                            "change_access_policy",
+                                            "production_publish",
+                                            "destructive_migration"]},
+        "business_codebases": {"biz": {"description": "test business codebase",
+                                       "path_ref": "biz",
+                                       "read_mode": "adapter",
+                                       "git_history": "metadata_only"}},
+        "adapters": {"semantic": [], "query": [], "fixture_enabled": False},
+        "governance": {"pii_policy_ref": None, "restricted_disclosure": None,
+                       "owners": {"default_domain_owner": None,
+                                  "metrics": {}},
+                       "high_risk_classes": []},
+        "evaluation": {"release_threshold": None, "threshold_owner": None,
+                       "require_p0_slices": True},
+        "runtime": {"evidence_root": ".chatbi",
+                    "fail_if_sandbox_unavailable": True},
+    }), encoding="utf-8")
+    local = Path(tempfile.mkdtemp(prefix="e010-local-")) / "chatbi-harness.local.json"
+    local.write_text(json.dumps({"path_bindings": {"biz": str(biz)}}),
+                     encoding="utf-8")
+    return {"harness_config_path": shared, "local_config_path": local}
+
 
 #: Scenario -> (kind, kwargs). Requests mirror the golden capture fixtures.
 _SCENARIO_SPECS: dict[str, tuple[str, dict[str, Any]]] = {
@@ -534,6 +782,128 @@ _SCENARIO_SPECS: dict[str, tuple[str, dict[str, Any]]] = {
     }),
     "C016_evidence_partial_write": ("kernel_shared", {
         "p0_row": "Evidence/DB 部分写失败",
+    }),
+    # Module 6 (stage E): the eight generic workflows run as REAL Agno
+    # workflows (workflow_registry), judged against the module-6 golden
+    # chains (E001-E009).
+    "E001_init": ("generic", {
+        "workflow": "chatbi-init",
+        "request": {"shared_config": ".claude/chatbi-harness.json",
+                    "path_alias": "workspace"},
+        "p0_row": "init 诊断全链（domain/config/paths/probe）",
+        "notes": (
+            "The diagnostic runs the FULL check chain against the injected "
+            "workspace; the Claude-shaped checks (claude_version/login/"
+            "sandbox/adapters) honestly block on the Agno runtime, so init "
+            "stays BLOCKED and production_ready stays False.",
+        ),
+        "setup": _setup_e001,
+    }),
+    "E002_bootstrap": ("generic", {
+        "workflow": "chatbi-bootstrap",
+        "request": {"host": "db.example.internal", "port": 3306,
+                    "user": "reader", "database": "dw",
+                    "credential_env_name": "DB_PW"},
+        "p0_row": "bootstrap：spec + CLI adapter 选择 + 源清单 + scaffold",
+        "notes": (
+            "CLI adapter selection uses resolve_executable with the "
+            "operator-confirmed allowlist (SEC-001/PORT-001); credentials "
+            "are env-var NAMEs only (SEC-003).",
+        ),
+        "setup": _setup_e002,
+    }),
+    "E003_bfr_route_f": ("generic", {
+        "workflow": "chatbi-build-from-requirement",
+        "request": {"requirement_text": "build x", "granularity": "all",
+                    "segment": "s"},
+        "p0_row": "build-from-requirement：SRC-002 route F + 校验过的 build plan",
+        "notes": (
+            "Route F (PASS) proceeds with the build chain; the plan passes "
+            "the kernel validate_build_plan.",
+        ),
+    }),
+    "E010_bfr_route_a": ("generic", {
+        "workflow": "chatbi-build-from-requirement",
+        "request": {"requirement_text": "build x", "granularity": "all",
+                    "segment": "s"},
+        "p0_row": "build-from-requirement：SRC-002 route A（owner 澄清 STOP）",
+        "notes": (
+            "Route A (blocked cross-check) requires domain-owner "
+            "adjudication before the build chain may proceed (REQ-001/002); "
+            "the delivery gate blocks with the IR rule vocabulary even "
+            "though a plan was derived (MEDIUM-2 fix).",
+        ),
+        "setup": _setup_e010,
+        "agent_stub": _stub_bfr_route_a_agent,
+    }),
+    "E004_maintain_model_approval": ("generic", {
+        "workflow": "chatbi-maintain-model",
+        "request": {"change_kind": "model", "target": "model_a",
+                    "evidence_state": "sufficient", "affected_assets": [],
+                    "p0_eval_failed": False, "actor": "operator",
+                    "action_type": "approve_metric", "protected": True},
+        "p0_row": "maintain-model：DOC-004 全同步门 + SEM-003 owner 审批",
+        "notes": (
+            "The protected action pauses for human-owner approval (SEM-003); "
+            "no delivery verdict exists before the approval resolves.",
+        ),
+    }),
+    "E005_maintain_knowledge_lint": ("generic", {
+        "workflow": "chatbi-maintain-knowledge",
+        "request": {"reference_text": (
+            "## Business context\n\nUse for: x\n## Citation\nno sha here\n")},
+        "p0_row": "maintain-knowledge：DOC-002/003 引用 lint",
+        "notes": (
+            "Lint issues block delivery (DOC-002/003); route-ready only when "
+            "lint yields no issues.",
+        ),
+    }),
+    "E006_evaluate_release": ("generic", {
+        "workflow": "chatbi-evaluate",
+        "request": {"answers": {"hf-1": {"value": 1}, "hf-2": {"value": 2}},
+                    "model_id": "model-example", "tokens": 500,
+                    "latency_ms": 120, "seen": True,
+                    "threshold_owner_confirmed": True, "release": True,
+                    "release_threshold": 0.9, "content_payload": {"suite": "e006"}},
+        "p0_row": "evaluate：EVAL-004 owner 确认阈值 release gate",
+        "notes": (
+            "The release threshold is owner-confirmed (EVAL-004); the run "
+            "carries the FBK-003 statement.",
+        ),
+    }),
+    "E007_correction_approval": ("generic", {
+        "workflow": "chatbi-correction",
+        "request": {"correction_id": "corr-e007", "fix_kind": "model",
+                    "fix_target": "model_a",
+                    "fix_change_summary": "repair the metric definition",
+                    "eval_case_assertion_id": "hf-1",
+                    "eval_case_expected_hash": "a" * 64,
+                    "rule_ids": ["FBK-001", "FBK-002"], "protected": True},
+        "p0_row": "correction：双候选 FBK-002 + SEM-003 owner 审批",
+        "notes": (
+            "A correction touching a canonical metric definition needs human "
+            "approval (SEM-003); owner_approved defaults False.",
+        ),
+    }),
+    "E008_audit_drift_missing_baseline": ("generic", {
+        "workflow": "chatbi-audit-drift",
+        "request": {"scope": "all"},
+        "p0_row": "audit-drift：缺源清单基线 = 硬 STOP",
+        "notes": (
+            "Missing baseline source_inventory.json is a hard STOP (class-2 "
+            "precondition; bootstrap not run).",
+        ),
+    }),
+    "E009_audit_drift_routed": ("generic", {
+        "workflow": "chatbi-audit-drift",
+        "request": {"scope": "all"},
+        "p0_row": "audit-drift：scope_expansion → route B + 报告落盘",
+        "notes": (
+            "A new source table is scope_expansion -> route B "
+            "(/chatbi-bootstrap); the report is persisted at the command "
+            "layer (F3).",
+        ),
+        "setup": _setup_e009,
     }),
 }
 
@@ -634,6 +1004,10 @@ def run_scenario(scenario_id: str) -> dict[str, Any]:
         return _run_workflow_scenario(scenario_id=scenario_id, **kwargs)
     if kind == "coordinator":
         return _run_coordinator_scenario(scenario_id=scenario_id, **kwargs)
+    if kind == "generic":
+        generic_kwargs = dict(kwargs)
+        generic_kwargs["workflow_id"] = generic_kwargs.pop("workflow")
+        return _run_generic_scenario(scenario_id=scenario_id, **generic_kwargs)
     return _run_kernel_shared_scenario(scenario_id)
 
 

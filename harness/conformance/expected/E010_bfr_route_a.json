@@ -1,0 +1,30 @@
+{
+  "final_status": "blocked",
+  "gate_decisions": [
+    {
+      "decision": {
+        "rule_ids": [
+          "SRC-002",
+          "SEM-003",
+          "REQ-001",
+          "REQ-002"
+        ],
+        "status": "block"
+      },
+      "gate": "delivery_gate"
+    }
+  ],
+  "notes": [
+    "Route A (blocked cross-check) requires domain-owner adjudication before the build chain may proceed (REQ-001/002); the delivery gate blocks with the IR rule vocabulary."
+  ],
+  "p0_row": "build-from-requirement：SRC-002 route A（owner 澄清 STOP）",
+  "scenario": "E010_bfr_route_a",
+  "schema_version": "chatbi.conformance/golden/v1",
+  "source_tier": null,
+  "src002_route": {
+    "reason": "SRC-002 cross-check blocked: alias/path unresolved for external codebase -> ask domain owner",
+    "route_class": "A",
+    "target_command": "STOP: ask domain owner for clarification (REQ-001/002)"
+  },
+  "workflow": "chatbi-build-from-requirement"
+}

@@ -293,6 +293,7 @@ def run_init_diagnostic(
     capability_probe: Callable[[], CapabilitySnapshot] | None = None,
     probe: Callable[[], CapabilitySnapshot] | None = None,
     claude_executable: Path | None = None,
+    workspace_root: Path | None = None,
 ) -> DiagnosticResult:
     """Run the explicit initialization diagnostic from the current Workspace.
 
@@ -304,11 +305,24 @@ def run_init_diagnostic(
     only) plus the default probe registered via :func:`set_default_probe` —
     with no registered probe the runtime checks report unavailable and the
     diagnostic fails closed (HOOK-004).
+
+    ``workspace_root`` (module-6 additive): the Workspace to diagnose; ``None``
+    keeps the historical ``Path.cwd()`` derivation (zero behavior change).
+    Server-side runtimes (Agno) pass the run's workspace explicitly so the
+    domain-contract / config-path / forbidden-root checks target the run, not
+    the process cwd.
     """
 
     checks: list[DiagnosticCheck] = []
     try:
-        workspace_root = Path.cwd().resolve(strict=True)
+        # Module-6 additive injection (MAJOR-1 fix): an explicit
+        # ``workspace_root`` lets a server-side runtime (Agno) diagnose the
+        # RUN's workspace instead of the process cwd; ``None`` keeps the
+        # historical ``Path.cwd()`` behavior byte-for-byte (zero change).
+        if workspace_root is None:
+            workspace_root = Path.cwd().resolve(strict=True)
+        else:
+            workspace_root = Path(workspace_root).resolve(strict=True)
         domain_decision = validate_domain_contract(workspace_root)
     except Exception as error:
         domain_decision = fail_closed(
@@ -385,7 +399,10 @@ def run_init_diagnostic(
     try:
         for alias in aliases:
             references.append(
-                resolve_path_reference(config, alias=alias, target=".")
+                resolve_path_reference(
+                    config, alias=alias, target=".",
+                    workspace_root=workspace_root,
+                )
             )
     except GateError as error:
         checks.append(DiagnosticCheck("paths", error.decision))

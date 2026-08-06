@@ -1,0 +1,33 @@
+{
+  "final_status": "completed",
+  "gate_decisions": [
+    {
+      "decision": {
+        "rule_ids": [
+          "SRC-002",
+          "SEM-003",
+          "REQ-001",
+          "REQ-002"
+        ],
+        "status": "pass"
+      },
+      "gate": "delivery_gate"
+    }
+  ],
+  "notes": [
+    "Route F (PASS) proceeds with the build chain; the plan passes the kernel validate_build_plan (topology/alias/SEM-003 consistency)."
+  ],
+  "p0_row": "build-from-requirement：SRC-002 route F + 校验过的 build plan",
+  "plan_models": [
+    "model_a"
+  ],
+  "scenario": "E003_bfr_route_f",
+  "schema_version": "chatbi.conformance/golden/v1",
+  "source_tier": null,
+  "src002_route": {
+    "reason": "no SRC-002 conflict; proceed with build chain",
+    "route_class": "F",
+    "target_command": "PASS: proceed with build chain (no SRC-002 finding)"
+  },
+  "workflow": "chatbi-build-from-requirement"
+}

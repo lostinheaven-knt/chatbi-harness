@@ -88,6 +88,9 @@ class ApprovalRecord:
     resolved_at: str | None = None
     resolution: str | None = None
     block_reason: str | None = None
+    #: Module 6 (additive): the workflow the approval belongs to. Old records
+    #: without the field default to "" and fall back to the record context.
+    workflow_id: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         out: dict[str, Any] = {
@@ -106,6 +109,7 @@ class ApprovalRecord:
             "resolved_at": self.resolved_at,
             "resolution": self.resolution,
             "block_reason": self.block_reason,
+            "workflow_id": self.workflow_id,
         }
         return out
 
@@ -127,6 +131,7 @@ class ApprovalRecord:
             resolved_at=data.get("resolved_at"),
             resolution=data.get("resolution"),
             block_reason=data.get("block_reason"),
+            workflow_id=data.get("workflow_id", ""),
         )
 
 
@@ -349,6 +354,7 @@ class ChatBIApprovalCoordinator:
             created_at=now,
             expires_at=expires,
             status=STATUS_PENDING,
+            workflow_id=context.workflow_id,
         )
 
         # 3. Persist Evidence (governance authority, .chatbi) + index.
@@ -595,7 +601,7 @@ def _context_from_record(record: ApprovalRecord, harness_release: str) -> Approv
         run_id = parts[1]
         step_id = "_".join(parts[2:])
     return ApprovalContext(
-        workflow_id="chatbi-analyze",
+        workflow_id=record.workflow_id or "chatbi-analyze",
         run_id=run_id,
         session_id=record.tenant,
         step_id=step_id or "approval",

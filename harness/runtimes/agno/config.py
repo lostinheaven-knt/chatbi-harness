@@ -75,6 +75,13 @@ class DeploymentConfig:
     #: (spike/test-only resolver). Default "stub" is documented as
     #: development-only; production requires a verified JWT boundary (module 6).
     auth_mode: str = "stub"
+    #: JWT shared secret (HS256) for the trusted-auth boundary (module 6).
+    #: Startup-only; never serialized into Evidence/events/logs (SEC-003).
+    jwt_secret: str | None = None
+    #: Raw rate-limit policy (module 6; parsed by runtimes.agno.observability).
+    rate_limit: Mapping[str, Any] | None = None
+    #: Monitoring hooks enabled flag (module 6; deployment wires its sink).
+    monitoring_enabled: bool = False
     #: Runtime state directory for product state (events, approvals, index).
     state_dir_name: str = ".chatbi-runtime"
 
@@ -133,6 +140,7 @@ def load_deployment_config(
             models=_models_from_env(os_env),
             superuser_subject=os_env.get("CHATBI_SUPERUSER_SUBJECT"),
             auth_mode=os_env.get("CHATBI_AUTH_MODE", "stub"),
+            jwt_secret=os_env.get("CHATBI_JWT_SECRET"),
         )
 
     path = Path(config_path)
@@ -182,6 +190,19 @@ def load_deployment_config(
         raise RuntimeError(
             f"auth_mode {auth_mode!r} is not supported (jwt|stub)"
         )
+    jwt_secret = data.get("jwt_secret")
+    if jwt_secret is not None and (
+        not isinstance(jwt_secret, str) or not jwt_secret
+    ):
+        raise RuntimeError("jwt_secret must be a non-empty string")
+    rate_limit = data.get("rate_limit")
+    if rate_limit is not None and not isinstance(rate_limit, Mapping):
+        raise RuntimeError("rate_limit must be an object")
+    monitoring = data.get("monitoring", {})
+    if isinstance(monitoring, Mapping):
+        monitoring_enabled = bool(monitoring.get("enabled", False))
+    else:
+        monitoring_enabled = bool(monitoring)
     state_dir_name = data.get("state_dir_name", ".chatbi-runtime")
     if not isinstance(state_dir_name, str) or not state_dir_name:
         raise RuntimeError("state_dir_name must be a non-empty string")
@@ -191,6 +212,9 @@ def load_deployment_config(
         models=models,
         superuser_subject=superuser_subject,
         auth_mode=auth_mode,
+        jwt_secret=jwt_secret,
+        rate_limit=dict(rate_limit) if isinstance(rate_limit, Mapping) else None,
+        monitoring_enabled=monitoring_enabled,
         state_dir_name=state_dir_name,
     )
 

@@ -308,12 +308,18 @@ def iter_standard_events(
     run_id: str,
     workflow_id: str,
     event_log: EventLog,
+    exclude_event_types: tuple[str, ...] = (),
 ) -> list[dict[str, Any]]:
     """Map a batch of agno events to standard envelopes, persisting each.
 
     Assigns monotonic ``event_index`` (continuing the run's log) and unique
     ``event_id`` (``evt_<run_id>_<index>``). Raises on any unmappable event
     (fail-closed, design §13 rule 4).
+
+    ``exclude_event_types`` drops mapped envelopes BEFORE persistence
+    (module 6: an approval-step pause that the controller auto-resumes
+    because the IR ``owner.pending`` condition is false must not surface a
+    ``run.paused`` in the standard event stream or the log).
     """
     index = event_log.next_index(run_id)
     mapped: list[dict[str, Any]] = []
@@ -327,6 +333,8 @@ def iter_standard_events(
             event_id=f"evt_{run_id}_{index}",
         )
         if envelope is None:
+            continue
+        if envelope["event_type"] in exclude_event_types:
             continue
         event_log.append(envelope)
         mapped.append(envelope)

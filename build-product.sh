@@ -85,7 +85,9 @@ echo "=== product built. Validating... ==="
      runtimes.claude_code.probe, runtimes.claude_code.adapter, \
      runtimes.claude_code.build_manifest, runtimes.claude_code.reconcile, \
      runtimes.agno.probe, runtimes.agno.evidence_index, runtimes.agno.events, \
-     runtimes.agno.approvals, runtimes.agno.reviewer, runtimes.agno.config; \
+     runtimes.agno.approvals, runtimes.agno.reviewer, runtimes.agno.config, \
+     runtimes.agno.workflow_registry, runtimes.agno.packager, \
+     runtimes.agno.observability, runtimes.agno.auth; \
      print('import OK')" )
 echo "--- canary sweep (no machine path / secret) ---"
 # grep -rnIE: POSIX grep (always present under /bin/sh). rg is not a binary in

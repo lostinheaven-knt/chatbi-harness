@@ -1,0 +1,39 @@
+{
+  "final_status": "blocked",
+  "gate_decisions": [
+    {
+      "decision": {
+        "rule_ids": [
+          "DOC-002",
+          "DOC-003"
+        ],
+        "status": "block"
+      },
+      "gate": "delivery_gate"
+    }
+  ],
+  "lint_fields": [
+    "Grain",
+    "Standard filters",
+    "Dimensions",
+    "Key models",
+    "Scope and exclusions",
+    "Joins",
+    "Common pitfalls",
+    "Best practices",
+    "Cross-references",
+    "Owner",
+    "Freshness",
+    "Use for",
+    "Do not use for"
+  ],
+  "lint_issue_count": 13,
+  "notes": [
+    "Lint issues block delivery (DOC-002/003); route-ready only when lint yields no issues."
+  ],
+  "p0_row": "maintain-knowledge：DOC-002/003 引用 lint",
+  "scenario": "E005_maintain_knowledge_lint",
+  "schema_version": "chatbi.conformance/golden/v1",
+  "source_tier": null,
+  "workflow": "chatbi-maintain-knowledge"
+}

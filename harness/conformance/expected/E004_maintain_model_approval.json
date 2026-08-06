@@ -1,0 +1,26 @@
+{
+  "final_status": "paused",
+  "gate_decisions": [],
+  "impact_blocking": true,
+  "notes": [
+    "The protected action pauses for human-owner approval (SEM-003); no delivery verdict exists before the approval resolves (paused, not completed)."
+  ],
+  "p0_row": "maintain-model：DOC-004 全同步门 + SEM-003 owner 审批",
+  "policy_precheck": {
+    "evidence_refs": [
+      "policy:protected-action"
+    ],
+    "reason": "Protected action approve_metric approved by a human owner",
+    "recovery": "No action required",
+    "rule_ids": [
+      "SEM-003",
+      "SEC-001"
+    ],
+    "status": "pass"
+  },
+  "protected_pending": true,
+  "scenario": "E004_maintain_model_approval",
+  "schema_version": "chatbi.conformance/golden/v1",
+  "source_tier": null,
+  "workflow": "chatbi-maintain-model"
+}

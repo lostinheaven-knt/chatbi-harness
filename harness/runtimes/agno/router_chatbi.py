@@ -37,7 +37,6 @@ import json
 import os
 import time
 import uuid
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
@@ -61,23 +60,21 @@ from .config import DeploymentConfig, load_deployment_config
 from .events import EventLog, iter_standard_events
 from .evidence_index import EvidenceIndex
 from .probe import probe_agno
+from .workflow_registry import ALL_WORKFLOW_IDS, workflow_approval_action
 
-#: The only workflow this module-5 spike implements (adjudication two).
-SUPPORTED_WORKFLOWS = ("chatbi-analyze",)
+#: All nine workflows the agno target implements after module 6 (stage E).
+#: analyze (module 5) + the eight generic IR workflows (workflow_registry).
+SUPPORTED_WORKFLOWS = ALL_WORKFLOW_IDS
 
 #: Envelope charset for run/session ids is enforced by the contract validator.
 def _new_run_id() -> str:
     return uuid.uuid4().hex[:32]
 
 
-@dataclass(frozen=True)
-class AuthSubject:
-    """Trusted authenticated subject (JWT sub or equivalent server-side
-    verification). ``is_agent`` marks non-human actors — they can never
-    approve (SEM-003)."""
-
-    subject: str
-    is_agent: bool = False
+#: Trusted authenticated subject. Defined in ``runtimes.agno.auth`` (kept
+#: fastapi-free so the auth boundary imports on the system python during
+#: build-product validation); re-exported here for the router surface.
+from .auth import AuthSubject  # noqa: E402
 
 
 #: Injectable trusted-auth resolver: ``(Request) -> AuthSubject | None``.
@@ -102,6 +99,33 @@ def _intent_sha(action_type: str, actor: str, request: Mapping[str, Any]) -> str
     return compute_candidate_sha(
         {"action": action_type, "actor": actor, "request": dict(request)}
     )
+
+
+def _preflight_request(request: Mapping[str, Any], workflow_id: str) -> None:
+    """Kernel preflight before any run resource is created (fail-closed).
+
+    ``chatbi-analyze`` validates the request schema with the Kernel
+    ``validate_request`` (module-5 contract). The eight other workflows
+    validate inside their IR first steps (parse/args/request steps call the
+    Kernel); this shape check refuses malformed bodies early so no run
+    resource is created for garbage input.
+    """
+    if workflow_id == "chatbi-analyze":
+        try:
+            validate_request(request)
+        except GateError as error:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error": "request rejected by the governance kernel",
+                    "decision": error.decision.to_dict(),
+                },
+            ) from error
+    elif not isinstance(request, Mapping) or not request:
+        raise HTTPException(
+            status_code=422,
+            detail="request body must be a non-empty object",
+        )
 
 
 def _decision_from_error_events(agno_events: list[Any]) -> dict | None:
@@ -163,6 +187,7 @@ class ChatBIRunController:
         self,
         *,
         workflow: Any,
+        workflows: dict[str, Any] | None = None,
         deployment: DeploymentConfig,
         workspace_root: Path,
         state_dir: Path,
@@ -172,8 +197,14 @@ class ChatBIRunController:
         harness_release: str,
         config: Any,
         approval_action_type: str | None = None,
+        approval_actions: dict[str, str | None] | None = None,
+        approval_step_ids: dict[str, str] | None = None,
+        rate_limiter: Any = None,
+        monitoring: Any = None,
     ) -> None:
         self.workflow = workflow
+        #: workflow_id -> agno Workflow (all nine after module 6).
+        self.workflows = workflows or {"chatbi-analyze": workflow}
         self.deployment = deployment
         self.workspace_root = Path(workspace_root).resolve()
         self.state_dir = Path(state_dir)
@@ -183,6 +214,16 @@ class ChatBIRunController:
         self.harness_release = harness_release
         self.config = config
         self.approval_action_type = approval_action_type
+        #: workflow_id -> protected action of its IR human_approval step
+        #: (None when the workflow declares none; analyze uses the module-5
+        #: deployment seam value).
+        self.approval_actions = approval_actions or {}
+        #: workflow_id -> step id of the human_approval step.
+        self.approval_step_ids = approval_step_ids or {}
+        #: Rate limiter (module 6; disabled policy = allow everything).
+        self.rate_limiter = rate_limiter
+        #: Monitoring hook points (module 6; NullHooks default).
+        self.monitoring = monitoring
         self._runs_dir = self.state_dir / "runs"
         self._runs_dir.mkdir(parents=True, exist_ok=True)
         self._paused_outputs: dict[str, Any] = {}
@@ -226,8 +267,16 @@ class ChatBIRunController:
         except (OSError, json.JSONDecodeError):
             return None
 
-    def list_runs(self, cursor: int = 0, limit: int = 50) -> list[dict[str, Any]]:
-        records = []
+    def list_runs(
+        self, cursor: int | str | None = 0, limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """Run list + cursor pagination (module 6 hardening).
+
+        ``cursor`` may be an int (legacy, created_at only) or the composite
+        ``"<created_at>:<run_id>"`` emitted by the router — same-second runs
+        paginate without skips or duplicates (ordering = (created_at,
+        run_id), deterministic)."""
+        records: list[tuple[int, str, dict[str, Any]]] = []
         for path in sorted(self._runs_dir.glob("*.json")):
             if path.name.endswith(".tmp"):
                 continue
@@ -235,12 +284,32 @@ class ChatBIRunController:
             if record is None:
                 continue
             created = int(record.get("created_at", 0))
-            if created <= cursor:
-                continue
-            records.append(record)
-            if len(records) >= limit:
-                break
-        return records
+            records.append((created, record.get("run_id", ""), record))
+        records.sort(key=lambda item: (item[0], item[1]))
+        if isinstance(cursor, str) and ":" in cursor:
+            parts = cursor.split(":", 1)
+            try:
+                cursor_created = int(parts[0])
+            except ValueError:
+                cursor_created = 0
+            cursor_run_id = parts[1]
+            filtered = [
+                record for created, run_id, record in records
+                if (created, run_id) > (cursor_created, cursor_run_id)
+            ]
+        else:
+            cursor_created = int(cursor or 0)
+            filtered = [
+                record for created, _run_id, record in records
+                if created > cursor_created
+            ]
+        return filtered[:limit]
+
+    def _workflow_for(self, run_id: str) -> Any:
+        """The agno Workflow that owns a run (module 6: one per workflow id)."""
+        record = self.get_run(run_id) or {}
+        workflow_id = record.get("workflow_id") or "chatbi-analyze"
+        return self.workflows.get(workflow_id) or self.workflow
 
     # ------------------------------------------------------------------
     # Evidence + ctx callbacks
@@ -337,20 +406,28 @@ class ChatBIRunController:
         scenario_id: str = "run",
         policy_request_type: str | None = None,
     ) -> dict[str, Any]:
-        """Preflight -> run.created -> workflow run -> terminal state."""
+        """Preflight -> run.created -> workflow run -> terminal state.
+
+        All nine IR workflows are dispatched here (module 6); the Kernel
+        preflight is per workflow (analyze validates the request schema; the
+        other workflows validate inside their IR steps — fail-closed before
+        any run resource is created).
+        """
         if workflow_id not in SUPPORTED_WORKFLOWS:
-            raise HTTPException(status_code=404, detail=f"workflow {workflow_id!r} is not implemented on the agno target (module 5: chatbi-analyze only)")
-        # Kernel preflight (fail-closed before any run resource is created).
-        try:
-            validate_request(request)
-        except GateError as error:
             raise HTTPException(
-                status_code=422,
-                detail={
-                    "error": "request rejected by the governance kernel",
-                    "decision": error.decision.to_dict(),
-                },
-            ) from error
+                status_code=404,
+                detail=f"workflow {workflow_id!r} is not implemented on the "
+                       "agno target",
+            )
+        _preflight_request(request, workflow_id)
+        if self.rate_limiter is not None and not self.rate_limiter.allow(
+            actor or "anonymous"
+        ):
+            raise HTTPException(
+                status_code=429,
+                detail="rate limit exceeded (fail-closed)",
+            )
+        workflow = self.workflows[workflow_id]
 
         run_id = _new_run_id()
         if not session_id:
@@ -387,6 +464,7 @@ class ChatBIRunController:
             "payload": {"actor": actor},
             "evidence_refs": [],
         })
+        self.monitoring.run_started(run_id, workflow_id, actor)
 
         self._ctxs[run_id] = {}
         run_input: dict[str, Any] = {
@@ -394,9 +472,9 @@ class ChatBIRunController:
             "chatbi_scenario": scenario_id,
             "chatbi_policy_request_type": policy_request_type or "discover",
             "run_id": run_id,
+            "chatbi_session_id": safe_sid,
         }
 
-        workflow = self.workflow
         raised: BaseException | None = None
         agno_events: list[Any] = []
         try:
@@ -415,13 +493,34 @@ class ChatBIRunController:
         except Exception as error:  # noqa: BLE001 - kernel/agno failure -> fail-closed
             raised = error
 
+        saw_pause = any(
+            getattr(ev, "event", None) in ("WorkflowPaused", "StepPaused")
+            for ev in agno_events
+        )
+        saw_error = any(
+            getattr(ev, "event", None) in ("WorkflowError", "StepError")
+            for ev in agno_events
+        )
+        ctx = self._ctxs.get(run_id, {})
+        # Per-IR approval decision (module 6): the workflow's human_approval
+        # step pauses when its ``owner.pending(<action>)`` condition holds.
+        # analyze keeps the module-5 deployment seam (approval_action_type).
+        approval_action = self.approval_actions.get(workflow_id)
+        needs_approval = approval_action is not None and (
+            workflow_id == "chatbi-analyze"
+            or bool(ctx.get("protected_pending"))
+        )
+        auto_resume = raised is None and saw_pause and not needs_approval
+
         # Map the agno events into standard envelopes (persisted + returned).
+        # An auto-resumed (condition-false) pause never surfaces run.paused.
         standard_events = iter_standard_events(
             agno_events,
             session_id=safe_sid,
             run_id=run_id,
             workflow_id=workflow_id,
             event_log=self.event_log,
+            exclude_event_types=("run.paused",) if auto_resume else (),
         )
         # Dedup: a confirmation StepPaused is followed by WorkflowPaused;
         # surface one run.paused (the approval bridge) per pause cycle.
@@ -434,35 +533,47 @@ class ChatBIRunController:
                 paused_seen = True
             deduped.append(event)
 
-        ctx = self._ctxs.get(run_id, {})
         # Recover the persisted run output (db-backed) for pause/continue.
         try:
             run_output = workflow.get_run_output(run_id=run_id, session_id=safe_sid)
         except Exception:  # noqa: BLE001
             run_output = None
-        saw_error = any(
-            getattr(ev, "event", None) in ("WorkflowError", "StepError")
-            for ev in agno_events
-        )
-        saw_pause = any(
-            getattr(ev, "event", None) in ("WorkflowPaused", "StepPaused")
-            for ev in agno_events
-        )
         run_status = None if raised is not None else getattr(run_output, "status", None)
 
         if raised is None and saw_pause:
-            # The workflow paused for human approval (approval bridge).
-            self._bridge_approval(
-                run_id=run_id, session_id=safe_sid, workflow_id=workflow_id,
-                request=request, actor=actor,
-            )
-            self._paused_outputs[run_id] = run_output
-            record["status"] = RunState.PAUSED.value
-            record["final_status"] = "paused"
-            self._save_run(record)
-            return {"run_id": run_id, "session_id": safe_sid,
-                    "status": "paused", "final_status": "paused",
-                    "events": deduped}
+            if needs_approval:
+                # The workflow paused for human approval (approval bridge).
+                self._bridge_approval(
+                    run_id=run_id, session_id=safe_sid, workflow_id=workflow_id,
+                    request=request, actor=actor,
+                    step_id=self.approval_step_ids.get(
+                        workflow_id, "human_approval"),
+                )
+                self._paused_outputs[run_id] = run_output
+                record["status"] = RunState.PAUSED.value
+                record["final_status"] = "paused"
+                self._save_run(record)
+                self.monitoring.run_terminal(run_id, workflow_id, "paused")
+                return {"run_id": run_id, "session_id": safe_sid,
+                        "status": "paused", "final_status": "paused",
+                        "events": deduped}
+            # Auto-resume (registered target extension, module 6): the IR
+            # owner.pending condition is false — the engine-level pause is
+            # confirmed and continued WITHOUT approval (no approval events,
+            # no run.resumed, no run.paused). The resumed steps then flow to
+            # the delivery gate.
+            try:
+                resumed = self._auto_continue_pause(
+                    run_id=run_id, session_id=safe_sid,
+                    workflow_id=workflow_id, run_output=run_output,
+                )
+            except Exception as error:  # noqa: BLE001 - fail-closed
+                raised = error
+            else:
+                standard_events = [*deduped, *resumed["standard_events"]]
+                agno_events = [*agno_events, *resumed["agno_events"]]
+                ctx = self._ctxs.get(run_id, {})
+                run_status = resumed["run_status"]
 
         final_status, delivery = _terminal_from_ctx(ctx, run_status, raised)
         if raised is None and not ctx.get("stop") and final_status in (
@@ -489,6 +600,12 @@ class ChatBIRunController:
                     recovery="inspect the run events and re-run the governed flow",
                 ).to_dict()
 
+        # The response event list: deduped start events (or, for an
+        # auto-resumed pause, the continued segment too).
+        response_events = deduped
+        if auto_resume:
+            response_events = standard_events
+
         if final_status == "completed":
             decision_payload = {
                 "gate": "delivery",
@@ -514,7 +631,7 @@ class ChatBIRunController:
             if not is_delivery_completion(completed):
                 raise RuntimeError("delivery completion violates the contract")
             self._emit(completed)
-            deduped.append(completed)
+            response_events.append(completed)
             record["status"] = RunState.COMPLETED.value
             record["final_status"] = "completed"
             record["delivery_decision"] = delivery
@@ -544,7 +661,7 @@ class ChatBIRunController:
                 "evidence_refs": [],
             }
             self._emit(blocked)
-            deduped.append(blocked)
+            response_events.append(blocked)
             record["status"] = RunState.BLOCKED.value
             record["final_status"] = "blocked"
             record["delivery_decision"] = delivery
@@ -557,34 +674,110 @@ class ChatBIRunController:
                 record["error"] = f"{type(raised).__name__}: {raised}"
 
         self._save_run(record)
+        if raised is not None:
+            self.monitoring.error(run_id, workflow_id, str(raised)[:512])
+        self.monitoring.run_terminal(run_id, workflow_id, final_status)
         return {"run_id": run_id, "session_id": safe_sid,
                 "status": record["status"], "final_status": final_status,
-                "events": deduped}
+                "events": response_events}
+
+    def _auto_continue_pause(
+        self, *, run_id: str, session_id: str, workflow_id: str,
+        run_output: Any,
+    ) -> dict[str, Any]:
+        """Auto-resume an approval-step engine pause whose IR
+        ``owner.pending`` condition is false (module-6 registered extension).
+
+        The agno 2.6.22 engine pauses UNCONDITIONALLY for a
+        ``requires_confirmation`` step, so the adapter confirms the
+        requirement and continues WITHOUT creating any approval (no
+        approval.* events, no ``run.resumed``, and ``run.paused`` was
+        excluded from the standard stream). The resumed steps flow to the
+        delivery gate; the Kernel remains the terminal authority (ADR-002).
+        """
+        workflow = self.workflows[workflow_id]
+        requirements = list(run_output.step_requirements or [])
+        for req in requirements:
+            if getattr(req, "requires_confirmation", False) or getattr(
+                req, "needs_confirmation", False
+            ):
+                req.confirm()
+        pre_pause_ctx = self._ctxs.get(run_id)
+        if isinstance(pre_pause_ctx, dict):
+            try:
+                session = workflow.get_session(session_id=session_id)
+                if session is not None:
+                    session_data = session.session_data or {}
+                    session_state = session_data.setdefault("session_state", {})
+                    session_state["_ctx"] = pre_pause_ctx
+                    workflow.save_session(session=session)
+            except Exception:  # noqa: BLE001 - in-memory ctx still flows
+                pass
+        agno_events: list[Any] = []
+        for event in workflow.continue_run(
+            run_response=run_output,
+            run_id=run_id,
+            session_id=session_id,
+            stream=True,
+            stream_events=True,
+        ):
+            agno_events.append(event)
+        standard_events = iter_standard_events(
+            agno_events,
+            session_id=session_id,
+            run_id=run_id,
+            workflow_id=workflow_id,
+            event_log=self.event_log,
+        )
+        try:
+            final_output = workflow.get_run_output(
+                run_id=run_id, session_id=session_id
+            )
+        except Exception:  # noqa: BLE001
+            final_output = None
+        return {
+            "agno_events": agno_events,
+            "standard_events": standard_events,
+            "run_status": getattr(final_output, "status", None),
+        }
 
     def _bridge_approval(
         self, *, run_id: str, session_id: str, workflow_id: str,
-        request: Mapping[str, Any], actor: str,
+        request: Mapping[str, Any], actor: str, step_id: str = "human_approval",
     ) -> None:
-        """Bridge a workflow pause to the ChatBI ApprovalCoordinator."""
-        if not self.approval_action_type:
+        """Bridge a workflow pause to the ChatBI ApprovalCoordinator.
+
+        The protected action comes from the workflow's IR human_approval
+        step (``owner.pending(<action>)``) for the eight module-6 workflows,
+        or from the module-5 deployment seam (``approval_action_type``) for
+        analyze — never from the request body (adjudication five).
+        """
+        action_type = self.approval_actions.get(workflow_id) or (
+            self.approval_action_type
+        )
+        if not action_type:
             return
-        candidate_sha = _intent_sha(self.approval_action_type, actor, request)
+        candidate_sha = _intent_sha(action_type, actor, request)
         from .approvals import ApprovalContext
 
         context = ApprovalContext(
             workflow_id=workflow_id, run_id=run_id, session_id=session_id,
-            step_id="human_approval",
+            step_id=step_id,
         )
         self.coordinator.request_approval(
             context=context,
-            action_type=self.approval_action_type,
+            action_type=action_type,
             requester_subject=actor,
             candidate_sha=candidate_sha,
             evidence_refs=(
+                # The Evidence file name mirrors the coordinator's persistence
+                # (approval-<approval_id>.json where approval_id =
+                # ap_<run_id>_<step_id>) so resolve's evidence re-verification
+                # (ADR-003) can locate the exact file.
                 f".chatbi/runs/{_safe_session_id(session_id)}/approval-"
-                f"ap_{run_id}_human_approval.json",
+                f"ap_{run_id}_{step_id}.json",
             ),
-            reason=f"Protected action {self.approval_action_type} requires human owner approval",
+            reason=f"Protected action {action_type} requires human owner approval",
         )
 
     def continue_run(
@@ -614,10 +807,11 @@ class ChatBIRunController:
                 "final_status": record["final_status"],
                 "events": list(replay.events),
             }
+        workflow = self._workflow_for(run_id)
         paused_output = self._paused_outputs.get(run_id)
         if paused_output is None:
             try:
-                paused_output = self.workflow.get_run_output(
+                paused_output = workflow.get_run_output(
                     run_id=run_id, session_id=session_id
                 )
             except Exception:  # noqa: BLE001
@@ -647,12 +841,12 @@ class ChatBIRunController:
         pre_pause_ctx = self._ctxs.get(run_id)
         if isinstance(pre_pause_ctx, dict):
             try:
-                session = self.workflow.get_session(session_id=session_id)
+                session = workflow.get_session(session_id=session_id)
                 if session is not None:
                     session_data = session.session_data or {}
                     session_state = session_data.setdefault("session_state", {})
                     session_state["_ctx"] = pre_pause_ctx
-                    self.workflow.save_session(session=session)
+                    workflow.save_session(session=session)
             except Exception:  # noqa: BLE001 - in-memory ctx still flows
                 pass
         # LOW-3 fix: run.resumed is persisted FIRST (approval re-verification
@@ -678,7 +872,7 @@ class ChatBIRunController:
 
         agno_events: list[Any] = []
         try:
-            for event in self.workflow.continue_run(
+            for event in workflow.continue_run(
                 run_response=paused_output,
                 run_id=run_id,
                 session_id=session_id,
@@ -811,6 +1005,7 @@ def get_chatbi_router(
     auth_resolver: AuthResolver | None = None,
     agent_runner: Callable[[str, Mapping[str, Any]], Mapping[str, Any]] | None = None,
     reviewer_runner: Any = None,
+    native_runner: Callable[[str, str, Mapping[str, Any]], Mapping[str, Any]] | None = None,
     approval_action_type: str | None = None,
     main_agent: Any = None,
     harness_config_path: str | Path | None = None,
@@ -820,8 +1015,31 @@ def get_chatbi_router(
 
     Returns ``(router, components)`` where ``components`` exposes the
     controller/coordinator/index for tests and the app factory.
+
+    Trusted auth (module 6): when the deployment config sets
+    ``auth_mode == "jwt"`` and no resolver is injected, the verified JWT
+    boundary (``runtimes.agno.auth``) is wired — a missing secret refuses
+    startup (fail-closed, MR-005). The ``stub`` mode remains the explicit
+    spike/test boundary only.
     """
     deployment = load_deployment_config(config_path)
+    if auth_resolver is None and deployment.auth_mode == "jwt":
+        from .auth import (  # noqa: PLC0415
+            jwt_secret_from_deployment,
+            make_jwt_auth_resolver,
+        )
+
+        secret = jwt_secret_from_deployment(deployment)
+        if not secret:
+            raise RuntimeError(
+                "auth_mode 'jwt' requires a JWT secret (deployment config "
+                "jwt_secret or CHATBI_JWT_SECRET); refusing to start without "
+                "a trusted auth boundary (fail-closed, MR-005)"
+            )
+        auth_resolver = make_jwt_auth_resolver(
+            secret=secret,
+            superuser_subject=deployment.superuser_subject,
+        )
     if workspace_root is None:
         workspace_root = Path.cwd()
     ws = Path(workspace_root).resolve()
@@ -873,8 +1091,21 @@ def get_chatbi_router(
         config=config,
     )
 
+    # Module 6 hardening: rate limiting + monitoring hook points (policy from
+    # the deployment config; disabled/null by default — honest FBK-003).
+    from .observability import (  # noqa: PLC0415
+        MonitoringHooks,
+        RateLimitPolicy,
+        SlidingWindowRateLimiter,
+    )
+
+    rate_policy = RateLimitPolicy.from_config(deployment.rate_limit)
+    rate_limiter = SlidingWindowRateLimiter(rate_policy) if rate_policy.enabled else None
+    monitoring = MonitoringHooks.null()
+
     controller = ChatBIRunController(
         workflow=None,
+        workflows=None,
         deployment=deployment,
         workspace_root=ws,
         state_dir=state_dir,
@@ -884,24 +1115,55 @@ def get_chatbi_router(
         harness_release=harness_release,
         config=config,
         approval_action_type=approval_action_type,
+        rate_limiter=rate_limiter,
+        monitoring=monitoring,
     )
 
-    from .workflow_analyze import build_analyze_workflow  # noqa: PLC0415
+    from .workflow_registry import build_all_workflows  # noqa: PLC0415
 
-    workflow = build_analyze_workflow(
+    workflows = build_all_workflows(
         workflows_dir=workflows_dir,
         config=config,
         agent_runner=agent_runner,
         reviewer_runner=reviewer_runner,
+        native_runner=native_runner,
         on_evidence=controller.record_evidence,
         on_tool=controller.record_tool,
         on_ctx=controller.record_ctx,
         harness_release=harness_release,
         db=db,
-        approval_action_type=approval_action_type,
+        deployment=deployment,
+        workspace_root=ws,
+        harness_config_path=shared_path,
+        local_config_path=local_config_path,
         main_agent=main_agent,
+        approval_action_type=approval_action_type,
     )
+    workflow_by_id = {w.id: w for w in workflows}
+    workflow = workflow_by_id["chatbi-analyze"]
+
+    # Per-workflow approval actions: the IR human_approval step's
+    # ``owner.pending(<action>)`` (module 6); analyze keeps the module-5
+    # deployment seam.
+    from chatbi_harness_ir.loader import load_workflow  # noqa: PLC0415
+    from .workflow_registry import _APPROVAL_STEP_IDS  # noqa: PLC0415
+
+    approval_actions: dict[str, str | None] = {
+        "chatbi-analyze": approval_action_type,
+    }
+    approval_step_ids: dict[str, str] = {"chatbi-analyze": "human_approval"}
+    for wid in ALL_WORKFLOW_IDS:
+        if wid == "chatbi-analyze":
+            continue
+        ir = load_workflow(Path(workflows_dir) / f"{wid}.yaml")
+        approval_actions[wid] = workflow_approval_action(wid, ir)
+        if wid in _APPROVAL_STEP_IDS:
+            approval_step_ids[wid] = _APPROVAL_STEP_IDS[wid]
+
     controller.workflow = workflow
+    controller.workflows = workflow_by_id
+    controller.approval_actions = approval_actions
+    controller.approval_step_ids = approval_step_ids
     # Approval PASS -> continue the run (先验后续: resolve already verified).
     coordinator.on_approved = (
         lambda record: _continue_after_approval(controller, record)
@@ -914,6 +1176,7 @@ def get_chatbi_router(
         "coordinator": coordinator,
         "controller": controller,
         "workflow": workflow,
+        "workflows": workflow_by_id,
     }
     router = _build_router(
         controller=controller,
@@ -1037,11 +1300,15 @@ def _build_router(
 
     @router.get("/runs")
     async def list_runs(
-        cursor: int = Query(0, ge=0),
+        cursor: str | None = Query(None),
         limit: int = Query(50, ge=1, le=500),
     ) -> Any:
-        records = controller.list_runs(cursor=cursor, limit=limit)
-        next_cursor = records[-1]["created_at"] if records else cursor
+        records = controller.list_runs(cursor=cursor or 0, limit=limit)
+        if records:
+            last = records[-1]
+            next_cursor = f"{last['created_at']}:{last['run_id']}"
+        else:
+            next_cursor = cursor or 0
         return {"runs": records, "next_cursor": next_cursor}
 
     @router.get("/runs/{run_id}/events")

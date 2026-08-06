@@ -1,0 +1,27 @@
+{
+  "dual_candidate": true,
+  "final_status": "paused",
+  "gate_decisions": [],
+  "notes": [
+    "A correction touching a canonical metric definition needs human approval (SEM-003); owner_approved defaults False (no auto-merge)."
+  ],
+  "owner_approved_default": true,
+  "p0_row": "correction：双候选 FBK-002 + SEM-003 owner 审批",
+  "policy_precheck": {
+    "evidence_refs": [
+      "policy:protected-action"
+    ],
+    "reason": "Protected action approve_metric approved by a human owner",
+    "recovery": "No action required",
+    "rule_ids": [
+      "SEM-003",
+      "SEC-001"
+    ],
+    "status": "pass"
+  },
+  "protected_pending": true,
+  "scenario": "E007_correction_approval",
+  "schema_version": "chatbi.conformance/golden/v1",
+  "source_tier": null,
+  "workflow": "chatbi-correction"
+}
