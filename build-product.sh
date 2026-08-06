@@ -71,7 +71,10 @@ chmod +x "$DEST/install.sh"
 echo "=== product built. Validating... ==="
 # Legacy import surface (via the shim) + kernel package + IR/contract
 # packages + runtime probe/adapter/reconcile (multi-runtime modules 2-4).
-( cd "$DEST" && PYTHONPATH=.claude/lib:packages:runtimes python3 -B -c \
+# NOTE: PYTHONPATH uses the product root, NOT the runtimes/ dir — a
+# runtimes/ entry would shadow the installed `agno` package with
+# runtimes/agno (module-5 sys.path-hygiene rule).
+( cd "$DEST" && PYTHONPATH=.claude/lib:packages:. python3 -B -c \
     "import chatbi_harness.evidence, chatbi_harness.impact, chatbi_harness.evaluator, \
      chatbi_harness.knowledge, chatbi_harness.harness_state, chatbi_harness.policy, \
      chatbi_harness.adapters, chatbi_harness.bootstrap, chatbi_harness.build_plan, \
@@ -80,7 +83,9 @@ echo "=== product built. Validating... ==="
      chatbi_governance.adapters.fixture, \
      chatbi_harness_ir, chatbi_runtime_contract, \
      runtimes.claude_code.probe, runtimes.claude_code.adapter, \
-     runtimes.claude_code.build_manifest, runtimes.claude_code.reconcile; \
+     runtimes.claude_code.build_manifest, runtimes.claude_code.reconcile, \
+     runtimes.agno.probe, runtimes.agno.evidence_index, runtimes.agno.events, \
+     runtimes.agno.approvals, runtimes.agno.reviewer, runtimes.agno.config; \
      print('import OK')" )
 echo "--- canary sweep (no machine path / secret) ---"
 # grep -rnIE: POSIX grep (always present under /bin/sh). rg is not a binary in

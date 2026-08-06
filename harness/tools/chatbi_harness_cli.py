@@ -10,9 +10,13 @@ Usage:
     chatbi-harness doctor --target claude-code
     chatbi-harness test-conformance --target claude-code [--scenario ID ...]
 
-The ``agno`` target is declared in the target enum but is NOT implemented in
-module 4 (Agno lands in module 5): every subcommand refuses ``--target agno``
-explicitly (exit 2 + recovery note) instead of silently no-opping (FBK-003).
+The ``agno`` target is implemented in module 5 (MR-D series): ``build``
+produces the auditable runtime artifact + ``runtime-manifest.json``, ``doctor``
+prints the capability manifest + fail-closed judgment, and
+``test-conformance`` runs the 16 P0 scenarios on the Agno target (stubbed
+runtime_stubs) and judges equivalence against the module-1 Golden Contract.
+The agno subcommands require the installed agno package (deployment venv) and
+fail explicitly when it is missing (FBK-003).
 
 ``build --target claude-code``:
   1. copies the audited target source ``.claude/**`` into the artifact dir;
@@ -47,10 +51,13 @@ import sys
 from pathlib import Path
 
 HARNESS_ROOT = Path(__file__).resolve().parents[1]
-for _sub in ("packages", "runtimes", ".claude/lib"):
-    _path = HARNESS_ROOT / _sub
-    if _path.is_dir() and str(_path) not in sys.path:
-        sys.path.insert(0, str(_path))
+# sys.path entries: the harness root itself (so ``import runtimes.*``
+# resolves AND the installed ``agno`` package is never shadowed by
+# ``runtimes/agno`` — module-5 sys.path-hygiene rule) plus the packages
+# container and the legacy .claude/lib (shim).
+for _entry in (HARNESS_ROOT, HARNESS_ROOT / "packages", HARNESS_ROOT / ".claude/lib"):
+    if _entry.is_dir() and str(_entry) not in sys.path:
+        sys.path.insert(0, str(_entry))
 CONFORMANCE_RUNNERS = HARNESS_ROOT / "conformance" / "runners"
 if CONFORMANCE_RUNNERS.is_dir() and str(CONFORMANCE_RUNNERS) not in sys.path:
     sys.path.insert(0, str(CONFORMANCE_RUNNERS))
@@ -114,12 +121,27 @@ def _probe_snapshot(harness_root: Path):
 
 
 def _require_harness_target(target: str) -> None:
-    """Refuse the agno target in module 4 (explicit, not silent, exit 2)."""
-    if target != "claude-code":
+    """Refuse a target this CLI build cannot serve (explicit, not silent)."""
+    if target not in TARGET_CHOICES:
         print(
-            f"error: target {target!r} is not implemented in module 4: the "
-            "Agno adapter lands in module 5 (MR-D series). Nothing was built "
-            "or deployed; re-run with --target claude-code.",
+            f"error: unknown target {target!r}; expected one of "
+            f"{TARGET_CHOICES}.",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+
+
+def _require_agno_runtime() -> None:
+    """The agno subcommands need the installed agno package (deployment
+    venv). Missing => explicit error (FBK-003), never a silent no-op."""
+    try:
+        import runtimes.agno  # noqa: F401  (unshadow guard)
+        import agno  # noqa: F401  (the installed package)
+    except ImportError:
+        print(
+            "error: the agno runtime is not importable in this interpreter; "
+            "run the agno subcommands with the deployment venv python "
+            "(agno-main/.venv/bin/python). Nothing was run (FBK-003).",
             file=sys.stderr,
         )
         raise SystemExit(2)
@@ -193,8 +215,72 @@ def _build_claude(out_dir: Path, args: argparse.Namespace) -> int:
     return 0
 
 
+def _build_agno(out_dir: Path) -> int:
+    """Build the auditable agno artifact: runtime + packages + workflows +
+    prompts + a runtime-manifest.json (design §8.5, MR-001)."""
+    from runtimes.agno.probe import ADAPTER_NAME, ADAPTER_VERSION, probe_agno
+
+    print(f"build agno -> {out_dir}")
+    if out_dir.exists():
+        shutil.rmtree(out_dir)
+    for tree in ("runtimes", "packages", "workflows", "prompts", "schemas"):
+        destination = out_dir / tree
+        if destination.exists():
+            shutil.rmtree(destination)
+        _copy_tree(HARNESS_ROOT / tree, destination)
+
+    manifest = probe_agno()
+    errors = manifest.validate()
+    if errors:
+        print("FAIL (MR-005): agno capability manifest is malformed:")
+        for error in errors:
+            print(f"  - {error}")
+        return 1
+    runtime_manifest = {
+        "schema_version": "chatbi.runtime-manifest/v1",
+        "adapter_name": ADAPTER_NAME,
+        "adapter_version": ADAPTER_VERSION,
+        "runtime": manifest.runtime,
+        "runtime_version": manifest.runtime_version,
+        "capabilities": {
+            name: {"status": entry.status.value, "modes": list(entry.modes)}
+            for name, entry in manifest.capabilities.items()
+        },
+        "supported_matrix": {
+            "fail_closed": {
+                "verdict": "partial",
+                "note": (
+                    "Agno target is PARTIAL until the stage-D P0 "
+                    "conformance suite passes and the module-6 acceptance "
+                    "list is satisfied (design §14.2, rule 5/6)."
+                ),
+            }
+        },
+    }
+    manifest_path = out_dir / "runtime-manifest.json"
+    manifest_path.write_text(
+        json.dumps(runtime_manifest, ensure_ascii=False, sort_keys=True, indent=2)
+        + "\n",
+        encoding="utf-8",
+    )
+    try:
+        display_path = manifest_path.relative_to(HARNESS_ROOT)
+    except ValueError:
+        display_path = manifest_path
+    print(f"manifest: {display_path}")
+    print(f"manifest: runtime={manifest.runtime} "
+          f"runtime_version={manifest.runtime_version}")
+    print("build ok: auditable artifact produced; deploy is a separate "
+          "authorized action (design §8.5).")
+    return 0
+
+
 def cmd_build(args: argparse.Namespace) -> int:
     _require_harness_target(args.target)
+    if args.target == "agno":
+        _require_agno_runtime()
+        out_dir = Path(args.out).resolve() if args.out else DIST_ROOT / "agno"
+        return _build_agno(out_dir)
     out_dir = Path(args.out).resolve() if args.out else CLAUDE_DIST
     return _build_claude(out_dir, args)
 
@@ -208,8 +294,50 @@ def _section_rows(manifest, statuses):
     return rows
 
 
+def _cmd_doctor_agno() -> int:
+    """doctor --target agno: probe -> manifest -> fail-closed judgment."""
+    from runtimes.agno.probe import probe_agno
+
+    manifest = probe_agno()
+    print(f"doctor --target agno (runtime {manifest.runtime} "
+          f"{manifest.runtime_version})")
+    print("supported (provided by runtime/adapter):")
+    for row in _section_rows(
+        manifest, {CapabilityStatus.PROVIDED_BY_RUNTIME, CapabilityStatus.PROVIDED_BY_ADAPTER}
+    ):
+        print(row)
+    print("partial (development/synthetic acceptance only, design §13 rule 5):")
+    for row in _section_rows(manifest, {CapabilityStatus.PARTIAL}):
+        print(row)
+    print("unsupported:")
+    for row in _section_rows(manifest, {CapabilityStatus.UNSUPPORTED}):
+        print(row)
+
+    workflows = load_all(HARNESS_ROOT / "workflows")
+    required = required_union(workflows)
+    missing = manifest.missing_required(required)
+    if missing:
+        print("fail-closed judgment (MR-005): deployment REFUSED — "
+              "required capabilities unsatisfied:")
+        for item in missing:
+            print(f"  - {item}")
+        print("recovery actions:")
+        print("  - install the agno runtime in this interpreter and re-run;")
+        print("  - re-run the capability probe and the conformance suite "
+              "after any runtime upgrade (design §13 rule 3).")
+        return 1
+    print("fail-closed judgment (MR-005): deployable — every IR required "
+          "capability is provided by the runtime or the adapter. NOTE: "
+          "supported status additionally requires the P0 conformance suite "
+          "(design §14.2); the Agno target stays PARTIAL until then.")
+    return 0
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
     _require_harness_target(args.target)
+    if args.target == "agno":
+        _require_agno_runtime()
+        return _cmd_doctor_agno()
     adapter = ClaudeCodeAdapter(HARNESS_ROOT)
     probe = _probe_snapshot(HARNESS_ROOT)
     manifest = adapter.probe(probe_snapshot=probe)
@@ -293,8 +421,47 @@ def _verify_scenarios(scenario_ids: list[str]):
     return diffs
 
 
+def _cmd_test_conformance_agno(args: argparse.Namespace) -> int:
+    """test-conformance --target agno: run the P0 suite on the Agno target
+    and judge equivalence against the Golden Contract (impl §9.4)."""
+    import runner_agno as ra
+    from compare import compare_all, write_report
+
+    scenario_ids = sorted(args.scenario) if args.scenario else sorted(ra._SCENARIO_SPECS)
+    print(f"test-conformance --target agno: {len(scenario_ids)} scenario(s): "
+          f"{', '.join(scenario_ids)}")
+    results = ra.run_all()
+    expected = {}
+    for sid in scenario_ids:
+        expected_path = CONFORMANCE_RUNNERS.parent / "expected" / f"{sid}.json"
+        if not expected_path.is_file():
+            print(f"FAIL: expected golden output missing: {expected_path}")
+            return 1
+        import json as _json
+
+        expected[sid] = _json.loads(expected_path.read_text(encoding="utf-8"))
+    report = compare_all(expected, results, scenario_ids)
+    report_path = DIST_ROOT / "agno" / "conformance-report.json"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    write_report(report, report_path)
+    print(f"report: {report_path.relative_to(HARNESS_ROOT)}")
+    if report["status"] != "pass":
+        print(f"FAIL: {len(report['diffs'])} difference(s) vs the Golden "
+              "Contract (Agno target is NOT equivalent):")
+        for diff in report["diffs"]:
+            print(f"  {diff}")
+        return 1
+    print("PASS: all P0 scenarios on the Agno target are equivalent to the "
+          "Golden Contract (final_status / gate conclusions / candidate_sha "
+          "/ evidence chain / review / approval resolution).")
+    return 0
+
+
 def cmd_test_conformance(args: argparse.Namespace) -> int:
     _require_harness_target(args.target)
+    if args.target == "agno":
+        _require_agno_runtime()
+        return _cmd_test_conformance_agno(args)
     if args.scenario:
         scenario_ids = list(args.scenario)
     else:

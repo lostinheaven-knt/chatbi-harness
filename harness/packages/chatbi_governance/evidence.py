@@ -261,6 +261,13 @@ class EvidenceEntry:
         sanitized: True if sanitization modified the payload (redaction occurred).
         content_sha256: SHA-256 hex of the sanitized payload (binds evidence content).
 
+    Optional runtime provenance fields (multi-runtime module 5, additive —
+    deployment design §10.2 / adjudication 4). All four default to ``None`` so
+    old Evidence records (recorded without them) remain fully readable and
+    serialize byte-identically: :meth:`to_dict` only emits a field when it is
+    non-None. New readers must treat absence as "not recorded" and never
+    invent a value (backward compatible, invariant 5: no machine paths).
+
     Use :meth:`create` to construct an entry; it sanitizes the payload,
     verifies idempotency (fail-closed), computes ``content_sha256``, and
     freezes the payload.
@@ -272,6 +279,10 @@ class EvidenceEntry:
     payload: Any
     sanitized: bool
     content_sha256: str
+    runtime_name: str | None = None
+    runtime_version: str | None = None
+    native_run_id: str | None = None
+    harness_release: str | None = None
 
     def __post_init__(self) -> None:
         if self.source_tier not in _SOURCE_TIERS:
@@ -296,8 +307,19 @@ class EvidenceEntry:
         evidence_source: str,
         rule_ids: Iterable[str],
         payload: Any,
+        runtime_name: str | None = None,
+        runtime_version: str | None = None,
+        native_run_id: str | None = None,
+        harness_release: str | None = None,
     ) -> "EvidenceEntry":
         """Create a sanitized, immutable evidence entry.
+
+        The optional runtime-provenance fields (``runtime_name``/
+        ``runtime_version``/``native_run_id``/``harness_release``) are recorded
+        verbatim (sanitized with the same text sanitizer) and never influence
+        ``content_sha256`` — the content hash binds only the governed payload,
+        so the same payload recorded by different Runtimes hashes identically
+        (a conformance-equivalence requirement).
 
         Raises :class:`GateError` (fail-closed) if:
         - ``payload`` is None (missing evidence).
@@ -336,6 +358,22 @@ class EvidenceEntry:
         content_sha = _content_sha256(sanitized_payload)
         # Freeze the payload into immutable containers.
         frozen_payload = _freeze_value(sanitized_payload)
+        runtime_fields = {
+            "runtime_name": runtime_name,
+            "runtime_version": runtime_version,
+            "native_run_id": native_run_id,
+            "harness_release": harness_release,
+        }
+        for field_name, value in runtime_fields.items():
+            if value is not None:
+                if not isinstance(value, str) or not value:
+                    raise ValueError(f"{field_name} must be a non-empty string")
+                sanitized_value = _sanitize_evidence_text(value)
+                if sanitized_value != value:
+                    raise ValueError(
+                        f"{field_name} contains a sensitive or machine-local "
+                        "pattern (SEC-003/PORT-001); record sanitized metadata"
+                    )
         return cls(
             source_tier=source_tier,
             evidence_source=evidence_source,
@@ -343,10 +381,14 @@ class EvidenceEntry:
             payload=frozen_payload,
             sanitized=changed,
             content_sha256=content_sha,
+            runtime_name=runtime_name,
+            runtime_version=runtime_version,
+            native_run_id=native_run_id,
+            harness_release=harness_release,
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        out: dict[str, Any] = {
             "source_tier": self.source_tier,
             "evidence_source": self.evidence_source,
             "rule_ids": list(self.rule_ids),
@@ -354,6 +396,14 @@ class EvidenceEntry:
             "sanitized": self.sanitized,
             "content_sha256": self.content_sha256,
         }
+        # Optional runtime provenance: emitted only when recorded, so old
+        # Evidence serializes exactly as before (backward compatible).
+        for field in ("runtime_name", "runtime_version", "native_run_id",
+                      "harness_release"):
+            value = getattr(self, field)
+            if value is not None:
+                out[field] = value
+        return out
 
     def to_json(self) -> str:
         return json.dumps(
