@@ -13,6 +13,14 @@ steps:
     function: chatbi_governance.evidence.validate_request
     when: "always"
     outputs: [validated_request]
+  - id: policy_precheck
+    executor: deterministic
+    function: chatbi_governance.policy.decide
+    # Protected-action precheck (SEM-003): the executed chain runs
+    # validate_request -> policy.decide before any evidence work (OBS-2,
+    # module-3 evaluation; mirror of the golden offline chain).
+    when: "always"
+    outputs: [policy_decision]
   - id: clarify
     executor: agent_with_tools
     # Any key field of the request undefined -> STOP with the minimal clarifying question.
@@ -34,6 +42,16 @@ steps:
     when: "evidence.has_gap(\"T2\")"
     tools: {allow: [Read, Grep, Glob, Bash], deny: [Write, Edit]}
     outputs: [t3_evidence]
+  - id: src002_crosscheck
+    executor: agent_with_tools
+    function: chatbi_governance.adapters.select_codebase_reader
+    # C2 cross-check (SRC-002): historical SQL / external Business Codebase
+    # evidence MUST flow through select_codebase_reader -> reader.read/search
+    # (analyze command prose §Historical SQL; OBS-2, module-3 evaluation).
+    # When business_codebases is empty the cross-check is vacuously satisfied.
+    when: "always"
+    tools: {allow: [Read, Grep, Glob], deny: [Write, Edit, Bash]}
+    outputs: [crosscheck_evidence]
   - id: candidate_bind
     executor: deterministic
     function: chatbi_governance.evidence.compute_candidate_sha

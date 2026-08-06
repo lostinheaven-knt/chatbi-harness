@@ -150,7 +150,7 @@ Before delivery, the candidate is NOT an answer (META-008, REV-001):
 ## 3. Answer footer contract (provenance.schema.json)
 
 Every delivered answer MUST carry a provenance footer conforming to
-`.claude/schemas/provenance.schema.json`. All 16 fields are required; a missing
+`.claude/schemas/provenance.schema.json`. All 17 fields are required; a missing
 field means the answer is not delivered (ANS-002). Validate the footer via
 `chatbi_harness.evidence.validate_provenance(footer)`.
 

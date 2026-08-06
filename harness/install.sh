@@ -95,6 +95,11 @@ cp -R "$SRC/docs"    "$TARGET_ABS/"
 # multi-runtime module 2: governance kernel + runtime adapters
 [ -d "$SRC/packages" ] && cp -R "$SRC/packages" "$TARGET_ABS/"
 [ -d "$SRC/runtimes" ] && cp -R "$SRC/runtimes" "$TARGET_ABS/"
+# multi-runtime module 3/4: IR workflows + prompt assets + conformance
+# snapshots (golden/expected frozen read-only baselines)
+[ -d "$SRC/workflows" ]    && cp -R "$SRC/workflows"    "$TARGET_ABS/"
+[ -d "$SRC/prompts" ]      && cp -R "$SRC/prompts"      "$TARGET_ABS/"
+[ -d "$SRC/conformance" ]  && cp -R "$SRC/conformance"  "$TARGET_ABS/"
 cp "$SRC/CLAUDE.md" "$SRC/CONTEXT.md" "$SRC/e2e-state.py" "$TARGET_ABS/"
 [ -f "$SRC/README.md" ] && cp "$SRC/README.md" "$TARGET_ABS/README.md"
 # defensive: strip any pycache that rode along, and ensure the launcher is +x
@@ -103,7 +108,7 @@ if [ ! -x "$TARGET_ABS/.claude/hooks/session_diagnose" ]; then
   chmod +x "$TARGET_ABS/.claude/hooks/session_diagnose" 2>/dev/null || \
     echo "  WARN: could not chmod +x .claude/hooks/session_diagnose" >&2
 fi
-echo "  ok: copied .claude/ packages/ runtimes/ docs/ CLAUDE.md CONTEXT.md e2e-state.py README.md"
+echo "  ok: copied .claude/ packages/ runtimes/ workflows/ prompts/ conformance/ docs/ CLAUDE.md CONTEXT.md e2e-state.py README.md"
 
 # ---------------------------------------------------------------------------
 # 3. Find a Python 3.10+ executable outside the workspace boundary

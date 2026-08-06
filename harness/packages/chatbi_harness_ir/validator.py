@@ -53,6 +53,14 @@ _RELATIVE_PATH_RE = re.compile(r"^[A-Za-z0-9_./-]+$")
 #: literal — those are not command invocations).
 _COMMAND_NAME_RE = re.compile(r"(?<![A-Za-z0-9_./:-])/([a-z][a-z0-9-]*)")
 
+#: Forward-slash Windows drive paths such as ``C:/Users/...`` (module-3
+#: evaluation OBS-1). The kernel ``gates._sanitize_text`` POSIX absolute-path
+#: pattern excludes ``:`` via its lookbehind, so a drive-letter + forward
+#: slash escapes BOTH the POSIX pattern and the backslash-only
+#: ``_WINDOWS_ABSOLUTE_PATH`` pattern; this content scan closes the gap
+#: (PORT-001: no machine paths in IR).
+_WINDOWS_DRIVE_FORWARD_SLASH_RE = re.compile(r"\b[A-Za-z]:/(?:[^\s,;)\]}]+)")
+
 _KERNEL_PREFIX = "chatbi_governance."
 
 #: Executors that must never carry a kernel function reference (they are not
@@ -173,6 +181,11 @@ def _scan_forbidden_content(text: str, errors: list[str]) -> None:
                 f"IR references non-chatbi command {('/' + token)!r}; only "
                 f"'/chatbi-xxx' workflow commands are allowed (design §4.1)"
             )
+    for match in _WINDOWS_DRIVE_FORWARD_SLASH_RE.finditer(text):
+        errors.append(
+            "IR contains a Windows drive path with forward slashes "
+            f"(PORT-001, OBS-1): {match.group(0)!r}"
+        )
 
 
 def validate_workflow(

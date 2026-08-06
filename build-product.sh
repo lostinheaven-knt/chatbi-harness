@@ -37,6 +37,13 @@ cp "$DEV/harness/.claude/chatbi-harness.json" \
    "$DEV/harness/.claude/chatbi-harness.example.json" \
    "$DEV/harness/.claude/chatbi-harness.local.example.json" "$DEST/.claude/"
 
+# --- multi-runtime module 3/4: IR workflows + prompt assets + conformance
+#     snapshots (golden/expected are READ-ONLY frozen baselines) ---
+rsync -a "$DEV/harness/workflows/"  "$DEST/workflows/"
+rsync -a "$DEV/harness/prompts/"    "$DEST/prompts/"
+rsync -a "$DEV/harness/conformance/expected/" "$DEST/conformance/expected/"
+rsync -a "$DEV/harness/conformance/golden/"   "$DEST/conformance/golden/"
+
 # --- commands: the 9 chatbi commands (NOT orchestrate.md) ---
 for c in chatbi-init chatbi-analyze chatbi-maintain-model \
          chatbi-maintain-knowledge chatbi-evaluate chatbi-correction \
@@ -62,7 +69,8 @@ chmod +x "$DEST/install.sh"
 
 # --- validate ---
 echo "=== product built. Validating... ==="
-# Legacy import surface (via the shim) + kernel package + runtime probe.
+# Legacy import surface (via the shim) + kernel package + IR/contract
+# packages + runtime probe/adapter/reconcile (multi-runtime modules 2-4).
 ( cd "$DEST" && PYTHONPATH=.claude/lib:packages:runtimes python3 -B -c \
     "import chatbi_harness.evidence, chatbi_harness.impact, chatbi_harness.evaluator, \
      chatbi_harness.knowledge, chatbi_harness.harness_state, chatbi_harness.policy, \
@@ -70,13 +78,21 @@ echo "=== product built. Validating... ==="
      chatbi_harness.drift, chatbi_harness.schedules, \
      chatbi_governance.resources, chatbi_governance.evidence, \
      chatbi_governance.adapters.fixture, \
-     runtimes.claude_code.probe; print('import OK')" )
+     chatbi_harness_ir, chatbi_runtime_contract, \
+     runtimes.claude_code.probe, runtimes.claude_code.adapter, \
+     runtimes.claude_code.build_manifest, runtimes.claude_code.reconcile; \
+     print('import OK')" )
 echo "--- canary sweep (no machine path / secret) ---"
 # grep -rnIE: POSIX grep (always present under /bin/sh). rg is not a binary in
 # some envs (zsh function) and its absence was masked by 2>/dev/null + || true,
 # making this sweep a silent no-op. /Users/[a-z] matches real user paths but not
 # doc placeholders like /Users/... (mirrors the /home/[a-z] narrowing).
-grep -rnIE '/Users/[a-z]|/home/[a-z]|BEGIN .*PRIVATE KEY|sk-[A-Za-z0-9]{20}' "$DEST" \
+# /private/(tmp|var|etc) closes the macOS real-path prefix blind spot (OBS-C):
+# /tmp and /var are symlinks into /private on macOS, so a machine path spelled
+# /private/tmp/... must be caught. The /private/ + "followed by" wording in
+# schedules.py's docstring is a rule description, not a path — the narrowed
+# alternation does not match it.
+grep -rnIE '/Users/[a-z]|/home/[a-z]|/private/(tmp|var|etc)|BEGIN .*PRIVATE KEY|sk-[A-Za-z0-9]{20}' "$DEST" \
     | grep -vE 'fixtures/config/embedded-secret|fixtures/codebases|malicious|prohibition|example' \
     | head -5 || true
 echo "--- dev-only files must be absent ---"
