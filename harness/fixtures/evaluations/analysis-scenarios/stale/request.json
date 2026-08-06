@@ -1,0 +1,9 @@
+{
+  "question": "What was the total revenue for acme_example last quarter?",
+  "time_range": "2024-01-01_to_2024-03-31",
+  "entity": "revenue",
+  "segment": "all_products",
+  "actor": "finance_reviewer_acme_example",
+  "purpose": "quarterly_finance_close",
+  "supported_decision": "executive_finance_review"
+}

@@ -1,0 +1,39 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "evaluation.schema.json",
+  "title": "ChatBI evaluation run",
+  "description": "Reproducible evaluation run record (EVAL-003): skill version, content hash (no Git), model id, per-assertion results (seen/unseen), tokens, latency, owner-confirmed threshold. Carries the FBK-003 statement (pass != absolute correctness). Applicable rules: EVAL-001..005, ABL-001/002, FBK-003, HOOK-001/004.",
+  "x-implemented-keywords": ["type", "enum", "pattern", "required", "properties", "items", "additionalProperties"],
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["run_id", "skill_version", "content_hash", "model_id", "assertions", "tokens", "latency_ms", "seen", "threshold_owner_confirmed", "passed_count", "total_count", "fbk_003_statement"],
+  "properties": {
+    "run_id": {"type": "string"},
+    "skill_version": {"type": "string"},
+    "content_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "model_id": {"type": "string"},
+    "assertions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["assertion_id", "passed", "expected_hash", "actual_hash", "rule_ids"],
+        "properties": {
+          "assertion_id": {"type": "string"},
+          "passed": {"type": "boolean"},
+          "expected_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "actual_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "rule_ids": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    },
+    "tokens": {"type": "integer", "minimum": 0},
+    "latency_ms": {"type": "integer", "minimum": 0},
+    "seen": {"type": "boolean"},
+    "release": {"type": "boolean"},
+    "threshold_owner_confirmed": {"type": "boolean"},
+    "passed_count": {"type": "integer", "minimum": 0},
+    "total_count": {"type": "integer", "minimum": 0},
+    "fbk_003_statement": {"type": "string"}
+  }
+}

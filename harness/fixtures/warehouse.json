@@ -1,0 +1,15 @@
+{
+  "snapshot_version": "fixture-1",
+  "description": "Synthetic warehouse snapshot for explicit test/example mode. Numbers are anchored to a fixed date and do not drift with the current date.",
+  "snapshot_date": "2024-01-15",
+  "columns": ["region", "product", "order_count", "revenue"],
+  "rows": [
+    {"region": "alpha", "product": "widget", "order_count": 10, "revenue": 1000},
+    {"region": "beta", "product": "gadget", "order_count": 20, "revenue": 2000},
+    {"region": "gamma", "product": "widget", "order_count": 5, "revenue": 500}
+  ],
+  "totals": {
+    "order_count": 35,
+    "revenue": 3500
+  }
+}

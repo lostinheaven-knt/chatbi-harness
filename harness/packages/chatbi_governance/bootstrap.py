@@ -1,11 +1,11 @@
 """Deterministic primitives for the ``/chatbi-bootstrap`` command (MySQL-only v1).
 
-This module is a thin layer over the existing :mod:`chatbi_harness.config` and
-:mod:`chatbi_harness.gates` primitives. It does NOT import ``adapters`` -
+This module is a thin layer over the existing :mod:`chatbi_governance.config` and
+:mod:`chatbi_governance.gates` primitives. It does NOT import ``adapters`` -
 adapter construction (``CliAdapter``, ``select_adapter``, ``resolve_executable``,
 ``build_cli_env``, ``validate_cli_argv``) is a runbook concern, not a lib
 concern. It does NOT duplicate secret/argv validation: the spec round-trips
-through :func:`chatbi_harness.config.load_effective_config` (which runs
+through :func:`chatbi_governance.config.load_effective_config` (which runs
 ``_contains_secret_argv`` + ``_contains_matching_string`` + the schema) and the
 ``CliAdapter`` constructor re-runs ``validate_cli_argv`` at construction time.
 
@@ -85,7 +85,7 @@ def build_mysql_adapter_spec(
 
     The returned ``argv[0]`` is the bare name ``"mysql"``; the runbook resolves
     it to an allowlisted absolute path later via
-    :func:`chatbi_harness.adapters.resolve_executable`.
+    :func:`chatbi_governance.adapters.resolve_executable`.
     """
     # host: non-empty str.
     if not isinstance(host, str) or not host:
@@ -171,7 +171,7 @@ def merge_local_config(
     Preserves existing keys; only adds/overwrites the supplied entries. Returns
     a new dict (does not mutate ``existing``). The result is limited to
     ``path_bindings`` + ``cli_adapters`` - the two keys
-    :func:`chatbi_harness.config.load_effective_config` permits in local config
+    :func:`chatbi_governance.config.load_effective_config` permits in local config
     (``config.py:410-417``). Any other top-level key in ``existing`` is dropped
     (local config may not override shared/protected policy - SEM-003/HOOK-004).
     """
@@ -264,7 +264,7 @@ def read_source_inventory(path: Path) -> SourceInventory:
     1`` / unknown column shape -> :class:`GateError` (fail-closed on tampered
     evidence).
 
-    The absent-policy asymmetry vs :func:`chatbi_harness.build_plan.
+    The absent-policy asymmetry vs :func:`chatbi_governance.build_plan.
     read_model_registry` is intentional: the registry starts empty (first
     build legitimately has no models); the source inventory is a bootstrap
     prerequisite - its absence means bootstrap has not run, which is a hard

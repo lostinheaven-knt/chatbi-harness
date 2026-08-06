@@ -1,0 +1,160 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "review.schema.json",
+  "title": "ChatBI Harness Review Verdict",
+  "description": "Adversarial review verdict validated by the documented project JSON Schema subset only. The structure expresses stale SHA (required candidate_sha field), missing coverage (11 required coverage keys), and blocking findings (findings[].severity enum includes block). Applicable rules: REV-001, REV-002, REV-003, HOOK-001, SEC-003.",
+  "x-implemented-keywords": [
+    "type",
+    "required",
+    "properties",
+    "additionalProperties",
+    "enum",
+    "pattern",
+    "minimum",
+    "items",
+    "minItems",
+    "uniqueItems"
+  ],
+  "type": "object",
+  "required": [
+    "run_id",
+    "round",
+    "candidate_sha",
+    "status",
+    "coverage",
+    "findings",
+    "reviewer_context_hash",
+    "sanitized_output"
+  ],
+  "properties": {
+    "run_id": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "round": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "candidate_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["PASS", "BLOCKED", "ERROR"]
+    },
+    "coverage": {
+      "type": "object",
+      "required": [
+        "entity",
+        "grain",
+        "joins",
+        "filters_exclusions",
+        "date_timezone",
+        "denominator",
+        "sample_bias",
+        "quality",
+        "observation_vs_interpretation",
+        "disclosure",
+        "provenance"
+      ],
+      "properties": {
+        "entity": {
+          "type": "string",
+          "enum": ["pass", "fail", "not_applicable"]
+        },
+        "grain": {
+          "type": "string",
+          "enum": ["pass", "fail", "not_applicable"]
+        },
+        "joins": {
+          "type": "string",
+          "enum": ["pass", "fail", "not_applicable"]
+        },
+        "filters_exclusions": {
+          "type": "string",
+          "enum": ["pass", "fail", "not_applicable"]
+        },
+        "date_timezone": {
+          "type": "string",
+          "enum": ["pass", "fail", "not_applicable"]
+        },
+        "denominator": {
+          "type": "string",
+          "enum": ["pass", "fail", "not_applicable"]
+        },
+        "sample_bias": {
+          "type": "string",
+          "enum": ["pass", "fail", "not_applicable"]
+        },
+        "quality": {
+          "type": "string",
+          "enum": ["pass", "fail", "not_applicable"]
+        },
+        "observation_vs_interpretation": {
+          "type": "string",
+          "enum": ["pass", "fail", "not_applicable"]
+        },
+        "disclosure": {
+          "type": "string",
+          "enum": ["pass", "fail", "not_applicable"]
+        },
+        "provenance": {
+          "type": "string",
+          "enum": ["pass", "fail", "not_applicable"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "severity",
+          "rule_ids",
+          "evidence_refs",
+          "reason",
+          "recovery"
+        ],
+        "properties": {
+          "severity": {
+            "type": "string",
+            "enum": ["block", "warn", "info"]
+          },
+          "rule_ids": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "pattern": "\\S"
+            }
+          },
+          "evidence_refs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "\\S"
+            }
+          },
+          "reason": {
+            "type": "string",
+            "pattern": "\\S"
+          },
+          "recovery": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "reviewer_context_hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "sanitized_output": {
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false
+}

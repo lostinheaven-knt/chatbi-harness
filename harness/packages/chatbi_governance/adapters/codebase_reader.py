@@ -6,7 +6,7 @@ Business Codebases (SCOPE-002). There are **no** ``execute``/``write``/
 raise a deterministic :class:`CodebaseScopeBlockError` so the SCOPE-002
 enforcement is verifiable in tests and visible to callers.
 
-Path identity reuses Cycle 1 :func:`chatbi_harness.paths.resolve_path_reference`
+Path identity reuses Cycle 1 :func:`chatbi_governance.paths.resolve_path_reference`
 (component-level containment, symlink rejection, parent-traversal rejection,
 portable ``{alias, relative_path, revision, revision_kind}`` reference). File
 content is always wrapped as ``untrusted=true`` data (SCOPE-003); README,

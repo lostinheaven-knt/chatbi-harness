@@ -144,10 +144,18 @@ class PortablePathReference:
         return json.dumps(self.to_dict(), separators=(",", ":"), sort_keys=True)
 
 
-def _configured_roots(config: EffectiveConfig) -> dict[str, Path]:
+def _configured_roots(
+    config: EffectiveConfig,
+    workspace_root: Path | None = None,
+) -> dict[str, Path]:
+    """Resolve the configured roots; ``workspace_root`` is an explicit override
+    for the soft "process cwd == Workspace root" coupling (feature-flow §3.7.2).
+    ``None`` keeps the historical ``Path.cwd()`` derivation unchanged.
+    """
     workspace_alias = config["workspace"]["id"]
     try:
-        workspace_root = Path.cwd()
+        if workspace_root is None:
+            workspace_root = Path.cwd()
     except (OSError, RuntimeError):
         raise _path_error(
             alias=workspace_alias,

@@ -1,0 +1,46 @@
+{
+  "catalog_version": "fixture-1",
+  "description": "Synthetic semantic catalog for explicit test/example mode. No organizational facts, no credentials, no PII, no machine paths.",
+  "metrics": [
+    {
+      "id": "fixture:metric:revenue",
+      "name": "Revenue",
+      "description": "Synthetic revenue metric for fixture tests",
+      "sql_template": "SELECT SUM(amount) FROM fixture_orders WHERE ds BETWEEN {start_date} AND {end_date}",
+      "dimensions": ["fixture:dim:region", "fixture:dim:product"],
+      "grain": "daily"
+    },
+    {
+      "id": "fixture:metric:order_count",
+      "name": "Order Count",
+      "description": "Synthetic order count metric for fixture tests",
+      "sql_template": "SELECT COUNT(*) FROM fixture_orders WHERE ds BETWEEN {start_date} AND {end_date}",
+      "dimensions": ["fixture:dim:region"],
+      "grain": "daily"
+    }
+  ],
+  "dimensions": [
+    {
+      "id": "fixture:dim:region",
+      "name": "Region",
+      "sql_template": "SELECT DISTINCT region FROM fixture_regions"
+    },
+    {
+      "id": "fixture:dim:product",
+      "name": "Product",
+      "sql_template": "SELECT DISTINCT product FROM fixture_products"
+    }
+  ],
+  "segments": [
+    {
+      "id": "fixture:segment:high_value",
+      "name": "High Value Orders",
+      "filter": "amount > 1000"
+    },
+    {
+      "id": "fixture:segment:returning",
+      "name": "Returning Customers",
+      "filter": "is_returning = true"
+    }
+  ]
+}

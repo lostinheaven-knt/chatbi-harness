@@ -1,11 +1,11 @@
 """Deterministic access/PII/risk/approval/capability policy for the ChatBI Harness.
 
 This module is a deterministic primitive (HOOK-001): it performs only field
-comparisons on an :class:`~chatbi_harness.config.EffectiveConfig` and an explicit
+comparisons on an :class:`~chatbi_governance.config.EffectiveConfig` and an explicit
 :class:`PolicyRequest`. It never reads the external Codebase, opens a shell, or
-executes a subprocess. It reuses :class:`~chatbi_harness.gates.GateDecision` for
+executes a subprocess. It reuses :class:`~chatbi_governance.gates.GateDecision` for
 its immutable, sanitized decision shape and introduces no second error protocol:
-callers block via :class:`~chatbi_harness.gates.GateError` with a
+callers block via :class:`~chatbi_governance.gates.GateError` with a
 :class:`PolicyDecision` directly.
 """
 
@@ -50,7 +50,7 @@ class PolicyDecision(GateDecision):
     ``PolicyDecision`` IS-A :class:`GateDecision`: it inherits the frozen/slots
     shape, the ``pass``/``warn``/``block`` factories, and the sanitization in
     ``GateDecision.__post_init__``. No second error protocol is introduced -
-    callers raise :class:`~chatbi_harness.gates.GateError` with a
+    callers raise :class:`~chatbi_governance.gates.GateError` with a
     ``PolicyDecision`` directly when a request must be blocked.
     """
 

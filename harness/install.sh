@@ -92,6 +92,9 @@ echo "  ok: target is a clean dedicated root -> $TARGET_ABS"
 echo "==> Copying harness assets: $SRC -> $TARGET_ABS"
 cp -R "$SRC/.claude" "$TARGET_ABS/"
 cp -R "$SRC/docs"    "$TARGET_ABS/"
+# multi-runtime module 2: governance kernel + runtime adapters
+[ -d "$SRC/packages" ] && cp -R "$SRC/packages" "$TARGET_ABS/"
+[ -d "$SRC/runtimes" ] && cp -R "$SRC/runtimes" "$TARGET_ABS/"
 cp "$SRC/CLAUDE.md" "$SRC/CONTEXT.md" "$SRC/e2e-state.py" "$TARGET_ABS/"
 [ -f "$SRC/README.md" ] && cp "$SRC/README.md" "$TARGET_ABS/README.md"
 # defensive: strip any pycache that rode along, and ensure the launcher is +x
@@ -100,7 +103,7 @@ if [ ! -x "$TARGET_ABS/.claude/hooks/session_diagnose" ]; then
   chmod +x "$TARGET_ABS/.claude/hooks/session_diagnose" 2>/dev/null || \
     echo "  WARN: could not chmod +x .claude/hooks/session_diagnose" >&2
 fi
-echo "  ok: copied .claude/ docs/ CLAUDE.md CONTEXT.md e2e-state.py README.md"
+echo "  ok: copied .claude/ packages/ runtimes/ docs/ CLAUDE.md CONTEXT.md e2e-state.py README.md"
 
 # ---------------------------------------------------------------------------
 # 3. Find a Python 3.10+ executable outside the workspace boundary

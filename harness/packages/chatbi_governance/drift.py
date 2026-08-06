@@ -264,16 +264,22 @@ def _utc_now_iso() -> str:
 
 
 @contextmanager
-def _cwd(path: Path):
-    """Run a block with ``path`` as the process cwd (restored on exit).
+def _cwd(path: Path, *, workspace_root: Path | None = None):
+    """Run a block with the process cwd set to the Workspace root.
 
     ``paths._configured_roots`` derives the Workspace alias root from
-    ``Path.cwd()`` (paths.py:150), so ``CodebaseReader.git_metadata`` must be
-    called with cwd = Workspace root. detect_drift is self-contained: callers
-    pass ``workspace_root`` and this helper scopes the chdir.
+    ``Path.cwd()`` by default (paths.py), so ``CodebaseReader.git_metadata``
+    must be called with cwd = Workspace root. detect_drift is self-contained:
+    callers pass ``workspace_root`` and this helper scopes the chdir.
+
+    ``workspace_root`` is an explicit override for that soft cwd coupling
+    (feature-flow §3.7.2, module 2 parameterization): when provided it is used
+    as the chdir target; ``None`` keeps the historical behavior (chdir to
+    ``path``) unchanged.
     """
+    target = workspace_root if workspace_root is not None else path
     previous = Path.cwd()
-    os.chdir(path)
+    os.chdir(target)
     try:
         yield
     finally:

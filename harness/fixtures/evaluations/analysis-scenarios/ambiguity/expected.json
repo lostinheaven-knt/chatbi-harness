@@ -1,0 +1,49 @@
+{
+  "scenario_id": "ambiguity",
+  "description": "Entity/segment definition is ambiguous. 'active_users' maps to multiple plausible definitions (registered, logged-in, paid). The semantic layer has no canonical metric for it. The route MUST stop and ask the smallest precise clarification; it MUST NOT fabricate a metric, denominator, or compromise definition.",
+  "failure_mode": "FM-AMB",
+  "applicable_rules": ["REQ-001", "REQ-002", "SEM-001", "REQ-004"],
+  "expected_behavior": {
+    "source_tier_path": "clarify",
+    "stops_at_clarification": true,
+    "t1_attempted_first": true,
+    "t1_outcome": "no_canonical_metric",
+    "fabrication_allowed": false,
+    "degradation_allowed_without_clarification": false,
+    "compromise_metric_allowed": false,
+    "candidate_definitions_presented": true
+  },
+  "expected_review_verdict": {
+    "status": "BLOCKED",
+    "blocking_coverage_keys": ["entity", "grain", "denominator"],
+    "expected_findings": [
+      {
+        "severity": "block",
+        "rule_ids": ["REQ-001", "REQ-002"],
+        "reason": "Entity 'active_users' is not uniquely resolved in the semantic layer; multiple candidate definitions exist and the actor's intent is ambiguous.",
+        "recovery": "Present the candidate definitions to the actor and request the smallest precise clarification (registered vs logged-in vs paid) before any query."
+      },
+      {
+        "severity": "block",
+        "rule_ids": ["SEM-001"],
+        "reason": "The semantic layer was attempted but returned no canonical metric for 'active_users'; the route must not fabricate a metric or denominator to bypass the gap.",
+        "recovery": "Record the T1 gap and stop for clarification; do not synthesize a metric definition."
+      }
+    ]
+  },
+  "expected_footer_assertions": {
+    "delivered_answer": false,
+    "source_tier": "T1",
+    "freshness_warning_required": false,
+    "human_signoff_required": false,
+    "clarification_required": true,
+    "fabricated_metric": false,
+    "fabricated_denominator": false,
+    "minimum_authorization_required": false,
+    "pii_returned": false,
+    "instructions_executed": false,
+    "rejected_instructions_logged": false,
+    "sql_as_canonical_definition": false
+  },
+  "supporting_data_refs": ["semantic-catalog-fragment.json"]
+}

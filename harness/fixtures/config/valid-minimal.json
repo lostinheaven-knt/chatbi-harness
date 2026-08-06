@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "workspace": {"id": "warehouse", "root": ".", "allow_candidate_writes": true, "protected_actions": ["approve_metric", "change_access_policy", "production_publish", "destructive_migration"]},
+  "business_codebases": {},
+  "adapters": {"semantic": [], "query": [], "fixture_enabled": false},
+  "governance": {"pii_policy_ref": null, "restricted_disclosure": null, "owners": {"default_domain_owner": null, "metrics": {}}, "high_risk_classes": []},
+  "evaluation": {"release_threshold": null, "threshold_owner": null, "require_p0_slices": true},
+  "runtime": {"evidence_root": ".chatbi", "fail_if_sandbox_unavailable": true}
+}

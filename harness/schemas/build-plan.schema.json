@@ -1,0 +1,49 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "build-plan.schema.json",
+  "title": "ChatBI requirement-driven build plan",
+  "description": "Ordered model build plan derived by /chatbi-build-from-requirement. Pure shape contract for validate_build_plan (HOOK-004). Applicable rules: SCOPE-001, SEC-001/003, RAW-003, SEM-003, PORT-001, DOC-002, META-003, HOOK-004.",
+  "x-implemented-keywords": ["type", "enum", "pattern", "required", "properties", "items", "additionalProperties"],
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "session_id", "models"],
+  "properties": {
+    "schema_version": {"type": "integer", "enum": [1]},
+    "session_id": {"type": "string"},
+    "models": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "layer", "upstream_deps", "change_kind", "created_rev", "owner", "cross_layer_exception", "join_or_aggregate_summary", "protected_action_flags", "requires_human_approval", "human_approval"],
+        "properties": {
+          "name": {"type": "string", "pattern": "^[a-z][a-z0-9_-]{1,62}$"},
+          "layer": {"type": "string", "enum": ["ods", "dwd", "dws", "ads", "dim"]},
+          "upstream_deps": {"type": "array", "items": {"type": "string"}},
+          "change_kind": {"type": "string", "enum": ["model", "column", "semantic", "reference", "Skill", "downstream", "eval"]},
+          "created_rev": {"type": "string"},
+          "owner": {"type": "string"},
+          "cross_layer_exception": {
+            "type": ["object", "null"],
+            "additionalProperties": false,
+            "required": ["reason", "approved_by"],
+            "properties": {"reason": {"type": "string"}, "approved_by": {"type": "string"}}
+          },
+          "join_or_aggregate_summary": {"type": "string"},
+          "protected_action_flags": {"type": "array", "items": {"type": "string", "enum": ["approve_metric", "change_access_policy", "production_publish", "destructive_migration"]}},
+          "requires_human_approval": {"type": "boolean"},
+          "human_approval": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["approved", "approver", "rule_ids"],
+            "properties": {
+              "approved": {"type": "boolean"},
+              "approver": {"type": ["string", "null"]},
+              "rule_ids": {"type": "array", "items": {"type": "string"}}
+            }
+          }
+        }
+      }
+    }
+  }
+}

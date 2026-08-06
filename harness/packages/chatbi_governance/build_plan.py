@@ -1,13 +1,13 @@
 """Deterministic primitives for the ``/chatbi-build-from-requirement`` command.
 
-A thin layer over existing :mod:`chatbi_harness.bootstrap` /
-:mod:`chatbi_harness.gates` / :mod:`chatbi_harness.evidence` /
-:mod:`chatbi_harness.impact` primitives. Mirrors :mod:`chatbi_harness.impact`
+A thin layer over existing :mod:`chatbi_governance.bootstrap` /
+:mod:`chatbi_governance.gates` / :mod:`chatbi_governance.evidence` /
+:mod:`chatbi_governance.impact` primitives. Mirrors :mod:`chatbi_governance.impact`
 discipline: does NOT duplicate secret/path validation (delegates to
-:func:`chatbi_harness.gates._sanitize_text`); raises :class:`GateError`
+:func:`chatbi_governance.gates._sanitize_text`); raises :class:`GateError`
 (HOOK-004) on validation violation, mirroring
-:func:`chatbi_harness.bootstrap._bootstrap_gate_error` and
-:func:`chatbi_harness.impact._impact_gate_error`. **Does NOT derive**
+:func:`chatbi_governance.bootstrap._bootstrap_gate_error` and
+:func:`chatbi_governance.impact._impact_gate_error`. **Does NOT derive**
 join/aggregate logic (agent reasoning); only reads + validates plan shape +
 appends registry evidence.
 
@@ -175,7 +175,7 @@ def build_model_entry(
     layers/change_kinds, bad protected_action_flags (SEM-003), empty-reason
     cross_layer_exception (Q2), or non-sanitizable text (Q5/SEC-003).
 
-    Mirrors :func:`chatbi_harness.impact.build_impact_manifest` discipline:
+    Mirrors :func:`chatbi_governance.impact.build_impact_manifest` discipline:
     sanitize text fields BEFORE constructing (Q5), validate enums/aliases,
     then return the frozen dataclass.
     """
@@ -430,7 +430,7 @@ def validate_build_plan(
        with ``human_approval.approved`` not True -> GateError
        (SCOPE-001/SEC-001/RAW-003/HOOK-004).
     5. Schema validation against ``build-plan.schema.json`` (single contract,
-       mirrors :func:`chatbi_harness.impact.validate_impact_manifest`).
+       mirrors :func:`chatbi_governance.impact.validate_impact_manifest`).
     """
     # 1. Topology + SCOPE-001 (open point 6: known_models cross-plan-boundary)
     name_to_index: dict[str, int] = {}
@@ -587,12 +587,12 @@ def append_model_registry(path: Path, entry: ModelEntry) -> Path:
     if absent). Called by maintain-model ONLY after sync gate + stop_gate pass
     (DOC-004/HOOK-001 - a failed-sync model is NOT recorded, fail-closed).
 
-    Atomic temp+rename mirroring :func:`chatbi_harness.harness_state.write_state`
+    Atomic temp+rename mirroring :func:`chatbi_governance.harness_state.write_state`
     discipline (``harness_state.py:104-122``, ``0o600``). Idempotent on
     ``(name, created_rev)`` (v1 = append-with-history; a rebuild at a new rev
     keeps both entries). Returns the registry path.
 
-    Cannot reuse :func:`chatbi_harness.harness_state.write_state` directly: that
+    Cannot reuse :func:`chatbi_governance.harness_state.write_state` directly: that
     function is path-constrained to ``.chatbi/runs/<session_id>/<name>.json``
     (``harness_state.py:29,47-60``); the registry lives at
     ``.chatbi/model_registry.json`` (evidence_root direct child, not under

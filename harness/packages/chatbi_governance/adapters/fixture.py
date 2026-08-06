@@ -28,6 +28,7 @@ import json
 from pathlib import Path
 from typing import Any, Mapping
 
+from ..resources import get_fixtures_root
 from .base import (
     AdapterCapabilities,
     AdapterEvidence,
@@ -46,9 +47,9 @@ _RUN_MODES = frozenset({"production", "test", "example"})
 _FIXTURE_RUN_MODES = frozenset({"test", "example"})
 _ADAPTER_KINDS = frozenset({"semantic", "query"})
 
-# Default fixtures root: .claude/fixtures/ relative to this module.
-# fixture.py -> adapters -> chatbi_harness -> lib -> .claude -> fixtures
-_DEFAULT_FIXTURES_ROOT = Path(__file__).resolve().parents[3] / "fixtures"
+# Asset root resolution (multi-runtime module 2): replaces the historical
+# parents[3] depth derivation (feature-flow §3.1.2); behavior unchanged.
+_DEFAULT_FIXTURES_ROOT = get_fixtures_root()
 
 _CATALOG_FILENAME = "semantic-catalog.json"
 _WAREHOUSE_FILENAME = "warehouse.json"
@@ -93,7 +94,7 @@ _LINEAGE_PAYLOAD: dict[str, Any] = {
 class FixtureAdapter:
     """Explicit-test Fixture adapter (Ticket 03, technical-design section 8).
 
-    Implements the :class:`~chatbi_harness.adapters.base.Adapter` protocol.
+    Implements the :class:`~chatbi_governance.adapters.base.Adapter` protocol.
     Only available when ``fixture_enabled`` is true and ``run_mode`` is
     ``test`` or ``example``. In production mode every operation deterministically
     blocks with ``PORT-001``; the Fixture adapter never silently acts as a

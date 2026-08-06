@@ -1,0 +1,9 @@
+{
+  "question": "How many active_users did acme_example record last month?",
+  "time_range": "2024-01-01_to_2024-01-31",
+  "entity": "active_users",
+  "segment": "all_regions",
+  "actor": "analyst_acme_example",
+  "purpose": "monthly_growth_review",
+  "supported_decision": "product_growth_decision"
+}

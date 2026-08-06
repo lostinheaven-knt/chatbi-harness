@@ -29,6 +29,10 @@ rsync -a                         "$DEV/harness/.claude/fixtures/"   "$DEST/.clau
 rsync -a                         "$DEV/harness/.claude/rules/"      "$DEST/.claude/rules/"
 rsync -a                         "$DEV/harness/.claude/schedules/"  "$DEST/.claude/schedules/"
 cp "$DEV/harness/.claude/settings.json" "$DEST/.claude/settings.json"
+
+# --- governance kernel + runtimes (multi-runtime module 2) ---
+rsync -a --exclude='__pycache__' "$DEV/harness/packages/"  "$DEST/packages/"
+rsync -a --exclude='__pycache__' "$DEV/harness/runtimes/"  "$DEST/runtimes/"
 cp "$DEV/harness/.claude/chatbi-harness.json" \
    "$DEV/harness/.claude/chatbi-harness.example.json" \
    "$DEV/harness/.claude/chatbi-harness.local.example.json" "$DEST/.claude/"
@@ -58,11 +62,15 @@ chmod +x "$DEST/install.sh"
 
 # --- validate ---
 echo "=== product built. Validating... ==="
-( cd "$DEST" && PYTHONPATH=.claude/lib python3 -B -c \
+# Legacy import surface (via the shim) + kernel package + runtime probe.
+( cd "$DEST" && PYTHONPATH=.claude/lib:packages:runtimes python3 -B -c \
     "import chatbi_harness.evidence, chatbi_harness.impact, chatbi_harness.evaluator, \
      chatbi_harness.knowledge, chatbi_harness.harness_state, chatbi_harness.policy, \
      chatbi_harness.adapters, chatbi_harness.bootstrap, chatbi_harness.build_plan, \
-     chatbi_harness.drift, chatbi_harness.schedules; print('import OK')" )
+     chatbi_harness.drift, chatbi_harness.schedules, \
+     chatbi_governance.resources, chatbi_governance.evidence, \
+     chatbi_governance.adapters.fixture, \
+     runtimes.claude_code.probe; print('import OK')" )
 echo "--- canary sweep (no machine path / secret) ---"
 # grep -rnIE: POSIX grep (always present under /bin/sh). rg is not a binary in
 # some envs (zsh function) and its absence was masked by 2>/dev/null + || true,

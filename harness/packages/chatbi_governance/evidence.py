@@ -32,6 +32,7 @@ from typing import Any, Iterable, Mapping
 # in gates.py; importing them avoids inventing a second error/sanitization
 # protocol. gates.py public contract is unchanged.
 from .gates import GateDecision, GateError, _sanitize_text, _unique
+from .resources import get_schema_dir
 
 
 _SOURCE_TIERS = frozenset({"T1", "T2", "T3"})
@@ -41,7 +42,9 @@ _SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
 # gates.py strips secrets and absolute paths but not email-style PII.
 _PII_EMAIL = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
 
-_SCHEMAS_DIR = Path(__file__).resolve().parents[2] / "schemas"
+# Asset root resolution (multi-runtime module 2): replaces the historical
+# parents[2] depth derivation (feature-flow §3.1.2); behavior unchanged.
+_SCHEMAS_DIR = get_schema_dir()
 
 
 # ---------------------------------------------------------------------------

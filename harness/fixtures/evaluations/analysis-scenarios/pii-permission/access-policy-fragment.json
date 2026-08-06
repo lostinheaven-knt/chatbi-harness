@@ -1,0 +1,28 @@
+{
+  "policy_version": "fixture-pii-permission-1",
+  "description": "Synthetic access-policy fragment for the pii-permission scenario. The actor 'analyst_acme_example' lacks PII read access for the customer_email column. The route must block before data access and state the minimum authorization required. No organizational facts, no real credentials, no PII values, no machine paths.",
+  "actor": "analyst_acme_example",
+  "actor_role": "analyst",
+  "scope": "acme_example_warehouse_fixture",
+  "granted_access": {
+    "tables": ["fixture_orders", "fixture_customers"],
+    "columns_non_pii": ["order_id", "customer_id", "amount", "region", "product", "ds", "is_returning"],
+    "disclosure_mode": "sql_only"
+  },
+  "denied_access": {
+    "columns_pii": ["customer_email", "customer_name", "customer_phone"],
+    "reason": "PII-classified columns require a separate PII read grant that the actor does not hold.",
+    "rule_ids": ["SEC-001", "SEC-002"]
+  },
+  "minimum_authorization_required": {
+    "grant": "pii_read",
+    "columns": ["customer_email"],
+    "or_alternative": "pseudonymized_customer_id derivative approved by the data governance owner",
+    "approver": "data_governance_owner_acme_example"
+  },
+  "metric_owner_approval_required": {
+    "rule_ids": ["SEM-003"],
+    "reason": "A canonical metric that joins order value to customer email is PII-bearing and cannot be auto-created or auto-approved by the LLM.",
+    "approver": "metric_owner_acme_example"
+  }
+}

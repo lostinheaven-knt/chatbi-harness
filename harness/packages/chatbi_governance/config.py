@@ -12,10 +12,13 @@ from types import MappingProxyType
 from typing import Any
 
 from .gates import GateDecision, GateError
+from .resources import get_schema_path
 
 
 MAX_CONFIG_BYTES = 256 * 1024
-SCHEMA_PATH = Path(__file__).resolve().parents[2] / "schemas" / "chatbi-harness.schema.json"
+# Asset root resolution (multi-runtime module 2): replaces the historical
+# parents[2] depth derivation (feature-flow §3.1.2); behavior unchanged.
+SCHEMA_PATH = get_schema_path("chatbi-harness.schema.json")
 _ABSOLUTE_PATH = re.compile(
     r"(?<![:/A-Za-z0-9_.-])/(?!/)[^\s,;)\]}]+"
     r"|\b[A-Za-z]:[\\/][^\s,;)\]}]+"

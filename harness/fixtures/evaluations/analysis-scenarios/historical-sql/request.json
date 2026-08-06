@@ -1,0 +1,9 @@
+{
+  "question": "What is the average order value for returning customers of acme_example?",
+  "time_range": "2024-01-01_to_2024-01-31",
+  "entity": "average_order_value",
+  "segment": "returning_customers",
+  "actor": "analyst_acme_example",
+  "purpose": "retention_analysis",
+  "supported_decision": "loyalty_program_decision"
+}
