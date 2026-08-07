@@ -61,7 +61,12 @@ _CAPABILITY_DRAFT: dict[str, tuple[CapabilityStatus, tuple[str, ...]]] = {
     "persistent_session": (CapabilityStatus.PROVIDED_BY_RUNTIME, ()),
     "session_resume": (CapabilityStatus.PROVIDED_BY_RUNTIME, ()),
     "resumable_run": (CapabilityStatus.PROVIDED_BY_RUNTIME, ()),
-    "human_approval": (CapabilityStatus.PARTIAL, ("chatbi_owner_policy",)),
+    # skill+hooks module F: the human_approval carrier is now the native
+    # @approval HITL + Kernel re-verification (approval_verify_hook); the
+    # STATUS stays PARTIAL (the supported-matrix judgment mechanism is
+    # unchanged, M6-S10 — a native carrier does not upgrade the status).
+    "human_approval": (CapabilityStatus.PARTIAL,
+                       ("chatbi_owner_policy", "@approval_hitl_kernel_reverify")),
     "independent_reviewer": (CapabilityStatus.PROVIDED_BY_ADAPTER, ()),
     "realpath_sandbox": (CapabilityStatus.PROVIDED_BY_ADAPTER, ()),
     "tool_allowlist": (CapabilityStatus.PROVIDED_BY_ADAPTER, ()),

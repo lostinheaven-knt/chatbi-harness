@@ -784,7 +784,7 @@ _SCENARIO_SPECS: dict[str, tuple[str, dict[str, Any]]] = {
         "p0_row": "Evidence/DB 部分写失败",
     }),
     # Module 6 (stage E): the eight generic workflows run as REAL Agno
-    # workflows (workflow_registry), judged against the module-6 golden
+    # workflows (module-5 registry), judged against the module-6 golden
     # chains (E001-E009).
     "E001_init": ("generic", {
         "workflow": "chatbi-init",

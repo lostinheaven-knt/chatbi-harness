@@ -91,11 +91,14 @@ def build_governed_agent(
     reviewer_runner: Any = None,         # stub 注入 seam（conformance）
     native_runner: Callable[..., Any] | None = None,
     clock: Any = None,
+    model: Any = None,                   # stub seam（conformance _ScriptedModel）
 ) -> Any:
     """Build the governed Agent (agno 2.6.22) with all module A-D wiring.
 
-    Every stub seam (``reviewer_runner``/``native_runner``) is injected here
-    so conformance and unit tests drive the agent without a live model.
+    Every stub seam (``reviewer_runner``/``native_runner``/``model``) is
+    injected here so conformance and unit tests drive the agent without a
+    live model; ``model=None`` builds the deployment model config
+    (OpenAIResponses, adjudication 7).
     """
     from . import ensure_agno_unshadowed
 
@@ -105,7 +108,12 @@ def build_governed_agent(
     from agno.skills import LocalSkills, Skills
     from agno.utils.hooks import normalize_post_hooks, normalize_pre_hooks
 
-    if model_config.api_key:
+    if model is None and model_config is None:
+        raise RuntimeError(
+            "a model or a model_config is required to build the governed "
+            "agent (fail-closed, MR-005)"
+        )
+    if model is None and model_config.api_key:
         import os
 
         os.environ.setdefault("OPENAI_API_KEY", model_config.api_key)
@@ -169,7 +177,7 @@ def build_governed_agent(
             "(allowlist, evidence preconditions, candidate SHA, review, "
             "approval, delivery gate)."
         ),
-        model=OpenAIResponses(
+        model=model if model is not None else OpenAIResponses(
             id=model_config.model,
             base_url=model_config.base_url or None,
         ),

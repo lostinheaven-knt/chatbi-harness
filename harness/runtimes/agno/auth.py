@@ -51,9 +51,9 @@ class AuthSubject:
     verification). ``is_agent`` marks non-human actors — they can never
     approve (SEM-003).
 
-    Defined here (not in router_chatbi) so the auth boundary stays
-    fastapi-free and importable on the system python (build-product import
-    validation)."""
+    Defined here (not in the deleted chatbi router) so the auth boundary
+    stays fastapi-free and importable on the system python (build-product
+    import validation)."""
 
     subject: str
     is_agent: bool = False

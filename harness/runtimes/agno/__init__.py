@@ -1,22 +1,28 @@
-"""Agno runtime adapter for the ChatBI Harness (module 5, stage D spike).
+"""Agno runtime adapter for the ChatBI Harness (skill+hooks architecture).
 
 Target-specific components only — every governance judgment lives in
 ``chatbi_governance`` (invariant 2); this package adds no second business
-rules. Modules:
+rules. The agno target is ONE governed native Agent (裁决 1: no workflow
+form; 裁决 3: skill+hooks governance). Modules:
 
-- :mod:`runtimes.agno.app` — ``create_chatbi_app``: AgentOS(base_app=…,
-  on_route_conflict="error", workflows=[…]) built from the IR at startup;
-- :mod:`runtimes.agno.router_chatbi` — ``/api/chatbi/v1/*`` endpoints
-  (impl §8.2 table) + the run controller (Kernel-derived terminal state,
-  ADR-002);
-- :mod:`runtimes.agno.workflow_analyze` — the ``chatbi-analyze`` Agno
-  Workflow mapped from the IR steps;
-- :mod:`runtimes.agno.events` — Agno RunEvent ↔ standard-event mapper +
-  replayable event log;
+- :mod:`runtimes.agno.app` — ``create_chatbi_app``:
+  ``AgentOS(agents=[governed_agent])`` built from the IR + prompt manifest
+  at startup; NO ``/api/chatbi/v1/*`` second API surface (裁决 2);
+- :mod:`runtimes.agno.agent_builder` — ``build_governed_agent``: assembles
+  instructions/skills/tools/tool_hooks/guardrails (single agent, 9
+  runbooks);
+- :mod:`runtimes.agno.governed_tools` — the 14 governance tool functions +
+  tool registry + IR condition evaluation;
+- :mod:`runtimes.agno.hooks` — six-layer tool_hooks chain + run-level
+  guardrails (request/policy/delivery; ADR-002 terminal gate);
+- :mod:`runtimes.agno.prompt_loader` — manifest-driven prompt assets
+  (sha256 + PORT-001 validation);
+- :mod:`runtimes.agno.events` — standard-event emitter + replayable event
+  log (cursor, dedup);
 - :mod:`runtimes.agno.approvals` — ChatBI ApprovalCoordinator (Kernel
-  re-verification before continue, §11.1);
+  re-verification; @approval bridge + reverify_before_execute);
 - :mod:`runtimes.agno.reviewer` — independent read-only reviewer with
-  candidate-SHA binding;
+  candidate-SHA binding + review tool wrapper;
 - :mod:`runtimes.agno.evidence_index` — ``.chatbi`` ↔ runtime index
   (path + content_sha256, drift detection, rebuild, atomic write);
 - :mod:`runtimes.agno.probe` — Agno capability probe → CapabilityManifest;

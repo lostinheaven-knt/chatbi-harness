@@ -277,29 +277,61 @@ def _merge_evidence_manifest(evidence: dict[str, bool],
     return evidence
 
 
-def _workflow_registry_payload(out_dir: Path) -> list[dict[str, Any]]:
-    """workflow-registry.json: every IR workflow the agno target registers
-    (impl §8.5 / §10 — the runtime reads the IR, so the registry documents
-    the nine registered workflows with their entry commands)."""
+def _agent_manifest_payload(out_dir: Path) -> dict[str, Any]:
+    """agent-manifest.json (skill+hooks module F): the built governed-agent
+    artifact summary — agent id, tool surface, guardrail list, prompt asset
+    sha256 digest, capability manifest, kernel_version/harness_release.
+
+    The agno target is ONE native governed Agent (no workflow registry), so
+    the build artifact carries the agent's governance surface instead of the
+    historical ``workflow-registry.json`` (design §6.4).
+    """
+    import hashlib
+
     from chatbi_harness_ir.loader import load_all
 
+    from runtimes.agno.governed_tools import build_tool_specs
+
     workflows = load_all(out_dir / "workflows")
-    return [
-        {
-            "workflow_id": workflow.workflow_id,
-            "workflow_version": workflow.workflow_version,
-            "title": workflow.title,
-            "entry_command": workflow.entry.command,
-        }
-        for workflow in sorted(workflows, key=lambda w: w.workflow_id)
-    ]
+    ir_workflows = {wf.workflow_id: wf for wf in workflows}
+    specs = build_tool_specs(ir_workflows)
+    prompt_digest: dict[str, str] = {}
+    manifest_path = out_dir / "prompts" / "manifest.json"
+    if manifest_path.is_file():
+        data = json.loads(manifest_path.read_text(encoding="utf-8"))
+        for name, spec in (data.get("entries") or {}).items():
+            sha = spec.get("sha256") if isinstance(spec, dict) else None
+            if isinstance(sha, str):
+                prompt_digest[name] = sha
+    return {
+        "schema_version": "chatbi.agent-manifest/v1",
+        "agent_id": "chatbi-agno",
+        "harness_release": _read_harness_release(),
+        "kernel_version": _read_kernel_version(out_dir),
+        "tool_surface": [
+            {
+                "name": spec.name,
+                "workflow_ids": list(spec.workflow_ids),
+                "approval": spec.approval,
+                "read_only": spec.read_only,
+            }
+            for spec in specs
+        ],
+        "guardrails": {
+            "pre": ["ChatbiRequestGuardrail", "ChatbiPolicyGuardrail"],
+            "post": ["ChatbiDeliveryGuardrail"],
+        },
+        "prompt_assets_sha256": prompt_digest,
+    }
 
 
 def _build_agno(out_dir: Path, evidence_path: Path | None = None) -> int:
     """Build the auditable agno artifact: runtime + packages + workflows +
-    prompts + workflow-registry.json + portable crontab (packager, MR-E2)
-    + a runtime-manifest.json with the full design-§13 field set and the
-    supported matrix (rule 6)."""
+    prompts + agent-manifest.json (skill+hooks module F: agent id / tool
+    surface / guardrails / prompt sha256 digest — the historical
+    workflow-registry.json is gone, the target is ONE native agent) +
+    portable crontab (packager, MR-E2) + a runtime-manifest.json with the
+    full design-§13 field set and the supported matrix (rule 6)."""
     from runtimes.agno.packager import pack_agno
     from runtimes.agno.probe import (
         ADAPTER_NAME,
@@ -379,13 +411,13 @@ def _build_agno(out_dir: Path, evidence_path: Path | None = None) -> int:
         + "\n",
         encoding="utf-8",
     )
-    registry_path = out_dir / "workflow-registry.json"
-    registry_path.write_text(
-        json.dumps(
-            {"schema_version": "chatbi.workflow-registry/v1",
-             "workflows": _workflow_registry_payload(out_dir)},
-            ensure_ascii=False, sort_keys=True, indent=2,
-        )
+    # skill+hooks module F: the build artifact carries the governed-agent
+    # manifest (agent id / tool surface / guardrails / prompt sha256 digest)
+    # instead of the historical workflow-registry.json.
+    agent_manifest_path = out_dir / "agent-manifest.json"
+    agent_manifest_path.write_text(
+        json.dumps(_agent_manifest_payload(out_dir),
+                   ensure_ascii=False, sort_keys=True, indent=2)
         + "\n",
         encoding="utf-8",
     )

@@ -298,8 +298,8 @@ def _eval_cond(
         )
         if kind == "has":
             return present
-        # ``has_gap`` follows the controller semantics (workflow_analyze
-        # ``ctx["gaps"]``): TRUE when a RECORDED GAP exists for the tier —
+        # ``has_gap`` follows the module-5 controller semantics
+        # (``ctx["gaps"]``): TRUE when a RECORDED GAP exists for the tier —
         # an attempted tier with a recorded gap marker, NOT "no evidence at
         # all". T2 requires a recorded T1 gap (design §1.2 C003), so the
         # marker must be derivable from the evidence chain.

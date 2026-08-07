@@ -133,7 +133,7 @@ run_subject: contextvars.ContextVar[str] = contextvars.ContextVar(
 )
 
 #: Review failure-mode rule sets (delivery-gate vocabulary, M5-S6 semantics —
-#: mirrors workflow_analyze._step_delivery_gate).
+#: mirrors the module-5 delivery-gate vocabulary).
 _RULES_UNAVAILABLE = ("HOOK-001", "HOOK-004", "SEC-003")
 _RULES_STALE_SHA = ("REV-001", "REV-003")
 _RULES_ROUND = ("REV-003", "HOOK-001")

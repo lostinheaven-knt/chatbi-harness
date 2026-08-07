@@ -1,24 +1,36 @@
-"""Agno target application factory (module 5, MR-D1).
+"""Agno target application factory (skill+hooks architecture, module F).
 
-Implements the impl-doc §8.1 skeleton against the real Agno 2.6.22
-``AgentOS`` API:
+Creates the ChatBI-on-AgentOS application in its AGENT form (裁决 1/2/3):
+NO ``/api/chatbi/v1/*`` second API surface, NO workflow registrations — a
+single governed native Agent carries all nine IR workflows (runbook
+routing + governance tools + tool_hooks + guardrails):
 
-- ChatBI endpoints live under ``/api/chatbi/v1/*`` on the ``base_app``
-  (adjudication three); ``on_route_conflict="error"`` makes ANY path+method
-  overlap between the ChatBI router and the AgentOS built-in routes a hard
-  failure (never a silent override of either side);
-- the ``chatbi-analyze`` workflow is read from the IR and registered with
-  AgentOS at startup ("runtime reads the IR and registers the Workflow", no
-  generated Python — design §8.5);
-- ``db`` = the Agno database (product state: sessions/runs); workflows
-  inherit it via ``AgentOS(db=...)`` + ``checkpoint="runs"``;
-- ``tracing=False`` and ``telemetry=False`` by default (explicitly enabled by
-  the deployer with a sanitization filter), ``scheduler=False``
-  (adjudication eight: AgentOS Scheduler stays OFF in this module).
+    1. ``ensure_agno_unshadowed()`` + ``check_kernel_compat`` (MR-005,
+       fail-closed version gate, design §13 rule 2);
+    2. IR load (all nine workflows, ``chatbi_harness_ir.load_all``) +
+       prompt assets (``prompt_loader.load_prompt_assets`` — manifest
+       sha256 + PORT-001 validation; failure refuses startup);
+    3. deployment config / effective config / model resolution
+       (``config.py`` — adjudication 7: keys only from the deployment
+       config / env, never persisted);
+    4. ``agent_builder.build_governed_agent``: instructions (governance +
+       runbook bodies + routing table), 7 skills, 14 governance tools,
+       six-layer tool_hooks, 2 pre + 1 post guardrails (ADR-002 terminal
+       gate), stub seams (``reviewer_runner``/``native_runner``/``model``)
+       injected for conformance;
+    5. ``AgentOS(id="chatbi-agno", agents=[governed_agent], ...)`` —
+       agent-ui connects via the AgentOS native routes only (``/agents``,
+       ``/agents/{id}/runs``, ``/sessions``, ``/health``);
+    6. returns ``(os_app.get_app(), components)``.
 
-Returns the fully built FastAPI application (``AgentOS.get_app()``).
+Signature differences vs the module-5 factory (M7 registration): removed
+``main_agent`` (the builder constructs the agent) and
+``approval_action_type`` (@approval is IR-``human_approval``-driven, module
+A); added ``model_refs`` (adjudication 7 model injection), ``skills_root``
+(prompt asset root override) and ``model`` (stub seam for conformance —
+default builds from the deployment model config).
 
-Applicable rules: MR-005, adjudication 3/7/8/10, invariant 2/5.
+Applicable rules: MR-005, ADR-002/003, adjudication 1/3/7/8, invariant 2/5.
 """
 
 from __future__ import annotations
@@ -28,8 +40,17 @@ from typing import Any, Callable, Mapping
 
 from fastapi import FastAPI
 
+from chatbi_governance.config import load_effective_config
+
+from .approvals import ChatBIApprovalCoordinator
+from .config import load_deployment_config
+from .events import EventLog
+from .evidence_index import EvidenceIndex
+from .governed_tools import build_tool_specs
+from .prompt_loader import load_prompt_assets
+from .reviewer import build_reviewer_agent
+
 APP_TITLE = "chatbi-agno"
-CHATBI_API_PREFIX = "/api/chatbi/v1"
 
 
 def _kernel_version() -> str | None:
@@ -50,6 +71,28 @@ def _kernel_version() -> str | None:
         return None
 
 
+def _resolve_config(
+    *,
+    ws: Path,
+    harness_config_path: str | Path | None,
+    local_config_path: str | Path | None,
+) -> Any:
+    """Effective governance config (fail-closed when explicitly requested
+    but unreadable; None when absent — callers treat None as LOW-2
+    fail-closed)."""
+    shared_path = harness_config_path
+    if shared_path is None:
+        candidate = ws / ".claude" / "chatbi-harness.json"
+        if candidate.is_file():
+            shared_path = candidate
+    if shared_path is None or not Path(shared_path).is_file():
+        return None
+    return load_effective_config(
+        Path(shared_path),
+        Path(local_config_path) if local_config_path else None,
+    )
+
+
 def create_chatbi_app(
     *,
     config_path: str | Path | None = None,
@@ -58,86 +101,130 @@ def create_chatbi_app(
     workspace_root: str | Path | None = None,
     harness_release: str = "dev",
     auth_resolver: Callable[..., Any] | None = None,
-    agent_runner: Callable[[str, Mapping[str, Any]], Mapping[str, Any]] | None = None,
-    reviewer_runner: Any = None,
-    native_runner: Callable[[str, str, Mapping[str, Any]], Mapping[str, Any]] | None = None,
-    approval_action_type: str | None = None,
-    main_agent: Any = None,
+    agent_runner: Callable[..., Any] | None = None,     # deprecated seam (M7)
+    reviewer_runner: Any = None,                        # stub seam（conformance）
+    native_runner: Callable[..., Any] | None = None,    # runtime_native seam
+    model_refs: Mapping[str, Any] | None = None,        # 裁决 7：model 注入
     harness_config_path: str | Path | None = None,
     local_config_path: str | Path | None = None,
+    skills_root: str | Path | None = None,              # prompt 资产根（缺省 resolve）
     scheduler: bool = False,
+    model: Any = None,                                  # stub seam（conformance）
 ) -> tuple[FastAPI, dict[str, Any]]:
-    """Build the ChatBI-on-AgnoOS application.
+    """Build the ChatBI-on-AgentOS application (agent form, skill+hooks).
 
-    Returns ``(app, components)`` — ``app`` is the fully provisioned FastAPI
-    application (AgentOS ``base_app`` + ChatBI router + built-in routes) and
-    ``components`` exposes the controller/coordinator/event-log/evidence-index
-    for tests and tooling.
+    Returns ``(app, components)`` — ``app`` is the AgentOS FastAPI
+    application (native routes only; no ``/api/chatbi/v1/*``) and
+    ``components`` exposes the agent/tool specs/tool hooks/guardrails/
+    event log/evidence index/approvals/prompt assets for tests and tooling.
 
-    Module 6: ALL NINE IR workflows are registered (analyze + the eight
-    generic workflows), the governance Kernel version is checked at startup
-    (fail-closed on mismatch), and ``auth_mode == "jwt"`` wires the verified
-    JWT boundary inside the router factory.
+    ``auth_resolver`` and ``agent_runner`` are kept for call-compatibility
+    with the module-5 factory but are UNUSED in the agent form (the run
+    subject comes from the AgentOS run context via the PolicyGuardrail; the
+    agent's behavior is driven by the model, scripted in conformance).
     """
     from . import ensure_agno_unshadowed
 
     ensure_agno_unshadowed()
     from agno.os import AgentOS
 
-    # Module 6 version separation (design §13 rule 2): the adapter is only
-    # certified for the pinned governance Kernel version; an unknown or
-    # mismatched Kernel refuses startup (fail-closed, MR-005).
+    # MR-005: certified Kernel version gate (design §13 rule 2).
     from .probe import check_kernel_compat  # noqa: PLC0415
 
     check_kernel_compat(_kernel_version())
 
-    from .router_chatbi import get_chatbi_router
+    deployment = load_deployment_config(config_path, env=None)
+    if workspace_root is None:
+        workspace_root = Path.cwd()
+    ws = Path(workspace_root).resolve()
+    state_dir = ws / deployment.state_dir_name
+    state_dir.mkdir(parents=True, exist_ok=True)
 
-    base = FastAPI(title=APP_TITLE, docs_url=f"{CHATBI_API_PREFIX}/docs")
+    event_log = EventLog(state_dir)
+    evidence_index = EvidenceIndex(ws, state_dir)
 
-    router, components = get_chatbi_router(
-        config_path=config_path,
-        prefix=CHATBI_API_PREFIX,
-        workflows_dir=workflows_dir,
-        db=db,
-        workspace_root=workspace_root,
+    if db is None:
+        from agno.db.sqlite import SqliteDb  # noqa: PLC0415
+
+        db = SqliteDb(db_file=str(state_dir / "agno.db"))
+
+    model_config = None
+    if model is None:
+        model_config = deployment.model_config("default")
+
+    config = _resolve_config(ws=ws, harness_config_path=harness_config_path,
+                             local_config_path=local_config_path)
+
+    coordinator = ChatBIApprovalCoordinator(
+        workspace_root=ws,
+        state_dir=state_dir,
+        deployment=deployment,
+        evidence_index=evidence_index,
+        event_log=event_log,
         harness_release=harness_release,
-        auth_resolver=auth_resolver,
-        agent_runner=agent_runner,
+        config=config,
+    )
+
+    # IR (all nine) + prompt assets — fail-closed on any validation failure.
+    from chatbi_harness_ir import load_all  # noqa: PLC0415
+
+    workflows = load_all(Path(workflows_dir))
+    ir_workflows = {wf.workflow_id: wf for wf in workflows}
+    prompt_assets = load_prompt_assets(
+        workspace_root=Path(skills_root) if skills_root is not None else ws,
+    )
+
+    reviewer_agent = None
+    if model_config is not None:
+        reviewer_agent = build_reviewer_agent(deployment, model_config)
+
+    from .agent_builder import build_governed_agent  # noqa: PLC0415
+
+    governed_agent = build_governed_agent(
+        deployment=deployment,
+        model_config=model_config,
+        config=config,
+        ir_workflows=ir_workflows,
+        workspace_root=ws,
+        harness_release=harness_release,
+        prompt_assets=prompt_assets,
+        evidence_index=evidence_index,
+        event_log=event_log,
+        approvals=coordinator,
+        tool_specs=build_tool_specs(ir_workflows),
+        reviewer_agent=reviewer_agent,
         reviewer_runner=reviewer_runner,
         native_runner=native_runner,
-        approval_action_type=approval_action_type,
-        main_agent=main_agent,
-        harness_config_path=harness_config_path,
-        local_config_path=local_config_path,
+        model=model,
     )
-    # Direct registration (NOT include_router): FastAPI 0.139 wraps included
-    # routers in path-less objects, which would hide the ChatBI routes from
-    # AgentOS's route-conflict detection (agno 2.6.22 get_existing_route_paths
-    # does not flatten). Registering the APIRoute objects directly keeps the
-    # on_route_conflict="error" guarantee real (adjudication three).
-    from fastapi.routing import APIRoute as _APIRoute
-
-    for route in router.routes:
-        if isinstance(route, _APIRoute):
-            base.router.routes.append(route)
 
     os_app = AgentOS(
         id="chatbi-agno",
         name=APP_TITLE,
         description=(
-            "ChatBI governed agent runtime on Agno AgentOS (module 6: all "
-            "nine IR workflows registered; AgentOS Scheduler stays OFF, "
+            "ChatBI governed agent runtime on Agno AgentOS (skill+hooks "
+            "form: single native agent; AgentOS Scheduler stays OFF, "
             "adjudication eight)."
         ),
-        base_app=base,
-        on_route_conflict="error",      # adjudication three: conflicts fail
-        workflows=list(components["workflows"].values()),
+        agents=[governed_agent],
         db=db,
         checkpoint="runs",
         tracing=False,                  # deployer opts in with a sanitizer
         telemetry=False,
-        scheduler=scheduler,            # adjudication eight: OFF (module 5/6)
+        scheduler=scheduler,            # adjudication eight: OFF
     )
     app = os_app.get_app()
+    components: dict[str, Any] = {
+        "agent": governed_agent,
+        "tool_specs": build_tool_specs(ir_workflows),
+        "tool_hooks": governed_agent.tool_hooks,
+        "guardrails": {
+            "pre": governed_agent.pre_hooks,
+            "post": governed_agent.post_hooks,
+        },
+        "event_log": event_log,
+        "evidence_index": evidence_index,
+        "approvals": coordinator,
+        "prompt_assets": prompt_assets,
+    }
     return app, components

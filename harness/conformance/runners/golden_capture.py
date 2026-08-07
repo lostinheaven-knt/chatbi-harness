@@ -1109,7 +1109,7 @@ def _contract_workspace(prefix: str) -> Path:
 
 
 def _agno_probe_snapshot() -> "CapabilitySnapshot":
-    """The module-6 Agno capability snapshot (mirrors workflow_registry's
+    """The module-6 Agno capability snapshot (module-5 adapter projection)
     ``_agno_capability_snapshot``) — injected into run_init_diagnostic on the
     chain side so both targets run the identical diagnostic. The Kernel
     snapshot vocabulary is Claude-shaped (doctor statuses / adapter id
