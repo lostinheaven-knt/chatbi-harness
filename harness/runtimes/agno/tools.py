@@ -29,6 +29,16 @@ from typing import Any, Iterable, Mapping
 
 #: agno 2.6.22 tool name -> IR vocabulary (design §4.1 tool names).
 TOOL_NAME_MAP: dict[str, str] = {
+    # agno bundles FileTools into ONE composite tool named ``file_tools``
+    # (agno/tools/file.py builds a single Tool from the enabled operations).
+    # Real-model integration: without this mapping the whole bundle was
+    # filtered out (unmapped -> blocked) and the live agent lost its file
+    # surface. The composite is judged as a Read-family tool; the deployer
+    # must configure the bundle read-only (save/delete disabled) — the
+    # adapter cannot split a bundle, so per-operation Write/Edit deny inside
+    # a bundle is a deployment-configuration responsibility (documented
+    # limitation, SEC-001 red line stays for scripted tool_calls).
+    "file_tools": "Read",
     "read_file": "Read",
     "read_file_chunk": "Read",
     "list_files": "Glob",

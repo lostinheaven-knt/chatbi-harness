@@ -114,6 +114,54 @@ def build_reviewer_agent(
 ReviewerRunner = Callable[[Mapping[str, Any]], Mapping[str, Any]]
 
 
+def extract_json_object(text: str) -> Mapping[str, Any] | None:
+    """Parse a model response that may wrap the JSON object in prose.
+
+    Real-model integration: DeepSeek frequently PREPENDS a sentence to the
+    verdict object even when instructed to return only JSON (observed in the
+    live demo: ``"Based on my review ... {\"run_id\": ...}"``). This helper
+    tries a plain parse first, then scans for the outermost ``{...}`` span
+    (string/escape-aware), and returns ``None`` when no well-formed object
+    can be located — the callers fail closed on ``None`` (HOOK-004).
+    """
+
+    def _as_object(raw: str) -> Mapping[str, Any] | None:
+        try:
+            parsed = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            return None
+        return parsed if isinstance(parsed, Mapping) else None
+
+    direct = _as_object(text)
+    if direct is not None:
+        return direct
+    start = text.find("{")
+    if start < 0:
+        return None
+    depth = 0
+    in_str = False
+    escaped = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_str:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return _as_object(text[start:i + 1])
+    return None
+
+
 def _default_reviewer_runner(agent: Any) -> ReviewerRunner:
     """Live runner: call the independent reviewer Agent and parse its output."""
 
@@ -126,14 +174,11 @@ def _default_reviewer_runner(agent: Any) -> ReviewerRunner:
         content = getattr(response, "content", None)
         if not isinstance(content, str) or not content.strip():
             raise RuntimeError("reviewer returned no content (fail-closed)")
-        try:
-            verdict = json.loads(content)
-        except json.JSONDecodeError as error:
+        verdict = extract_json_object(content)
+        if verdict is None:
             raise RuntimeError(
                 "reviewer output is not JSON (fail-closed)"
-            ) from error
-        if not isinstance(verdict, Mapping):
-            raise RuntimeError("reviewer output is not a JSON object")
+            )
         return verdict
 
     return _run
@@ -183,7 +228,9 @@ def run_review(
         return ReviewResult(
             verdict=ReviewVerdict.BLOCKED,
             candidate_sha=candidate_sha,
-            findings=(f"reviewer unavailable: {type(error).__name__}",),
+            # Real-model integration: the message is what makes the failure
+            # diagnosable (e.g. a provider/auth error surfaces in Evidence).
+            findings=(f"reviewer unavailable: {type(error).__name__}: {error}",),
             sanitized_output=False,
             reason="Reviewer unavailable or unparseable; fail-closed (HOOK-004)",
         )

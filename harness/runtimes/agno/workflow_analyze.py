@@ -537,6 +537,67 @@ def build_analyze_workflow(
     if unknown:
         raise ValueError(f"IR declares steps the agno workflow cannot map: {unknown}")
 
+    # Live-mode default wiring BEFORE _StepConfig is built: the live runner
+    # closes over ``main_agent`` and must be resolved before the config
+    # snapshot takes ``agent_runner`` (real-model integration found the
+    # previous order left cfg.agent_runner None -> agent steps crashed with
+    # TypeError: 'NoneType' object is not callable).
+    if agent_runner is None:
+
+        def _live_agent_runner(
+            step_id: str, payload: Mapping[str, Any], tool_policy: Any = None,
+        ) -> dict[str, Any]:
+            # Local name (NOT ``main_agent``): the tool-filter branch below
+            # rebinds the agent, and any assignment would shadow the closure
+            # variable -> UnboundLocalError on the first call.
+            agent = main_agent
+            if agent is None:
+                raise RuntimeError("main agent unavailable (fail-closed)")
+            if tool_policy is not None:
+                from .tools import filter_agent_tools
+
+                allowed_tools = filter_agent_tools(
+                    list(agent.tools or []), tool_policy
+                )
+                if len(allowed_tools) != len(list(agent.tools or [])):
+                    # Real agno mechanism: the step agent's tool surface is
+                    # filtered by the IR allowlist before the run, so the
+                    # runtime cannot invoke a non-allowlisted tool.
+                    # ``instructions`` MUST carry over: real-model
+                    # integration found the reconstructed agent lost them,
+                    # leaving the model with a bare payload (non-JSON output
+                    # -> fail-closed on every agent step).
+                    from agno.agent import Agent as _Agent
+
+                    agent = _Agent(
+                        id=agent.id,
+                        name=agent.name,
+                        model=agent.model,
+                        tools=allowed_tools,
+                        instructions=getattr(agent, "instructions", None),
+                        session_id=agent.session_id,
+                        markdown=False,
+                    )
+            response = agent.run(
+                json.dumps(dict(payload), ensure_ascii=False, sort_keys=True)
+            )
+            content = getattr(response, "content", None)
+            if not isinstance(content, str) or not content.strip():
+                raise RuntimeError("main agent returned no content (fail-closed)")
+            # Robust JSON extraction: real models wrap the object in prose
+            # even when instructed otherwise (same integration finding as
+            # the reviewer; shared helper in reviewer.py).
+            from .reviewer import extract_json_object
+
+            parsed = extract_json_object(content)
+            if parsed is None:
+                raise RuntimeError(
+                    "main agent output is not JSON (fail-closed)"
+                )
+            return parsed
+
+        agent_runner = _live_agent_runner
+
     cfg = _StepConfig(
         config=config,
         agent_runner=agent_runner,
@@ -557,50 +618,6 @@ def build_analyze_workflow(
         for step in ir.steps
         if step.executor.value in ("agent_with_tools", "independent_reviewer")
     }
-
-    def _live_agent_runner(
-        step_id: str, payload: Mapping[str, Any], tool_policy: Any = None,
-    ) -> dict[str, Any]:
-        if main_agent is None:
-            raise RuntimeError("main agent unavailable (fail-closed)")
-        if tool_policy is not None:
-            from .tools import filter_agent_tools
-
-            allowed_tools = filter_agent_tools(
-                list(main_agent.tools or []), tool_policy
-            )
-            if len(allowed_tools) != len(list(main_agent.tools or [])):
-                # Real agno mechanism: the step agent's tool surface is
-                # filtered by the IR allowlist before the run, so the
-                # runtime cannot invoke a non-allowlisted tool.
-                from agno.agent import Agent as _Agent
-
-                main_agent = _Agent(
-                    id=main_agent.id,
-                    name=main_agent.name,
-                    model=main_agent.model,
-                    tools=allowed_tools,
-                    session_id=main_agent.session_id,
-                    markdown=False,
-                )
-        response = main_agent.run(
-            json.dumps(dict(payload), ensure_ascii=False, sort_keys=True)
-        )
-        content = getattr(response, "content", None)
-        if not isinstance(content, str) or not content.strip():
-            raise RuntimeError("main agent returned no content (fail-closed)")
-        try:
-            parsed = json.loads(content)
-        except json.JSONDecodeError as error:
-            raise RuntimeError(
-                "main agent output is not JSON (fail-closed)"
-            ) from error
-        if not isinstance(parsed, Mapping):
-            raise RuntimeError("main agent output is not a JSON object")
-        return parsed
-
-    if agent_runner is None:
-        agent_runner = _live_agent_runner
 
     def _wrap(executor: Callable[..., Any]) -> Callable[..., Any]:
         """Report the context after EVERY step so the controller can derive
