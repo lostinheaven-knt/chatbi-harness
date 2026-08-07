@@ -402,13 +402,15 @@ def build_tool_hooks(
 
     def approval_verify_hook(name: str, func: Callable[..., Any],
                              args: Mapping[str, Any]) -> Any:
+        from .events import emit_standard_event
+
         spec = specs_by_name.get(name)
         if spec is None or spec.approval != "required":
             return func(**args)
-        subject = run_subject.get()
+        requester = run_subject.get()
         action_type = _approval_action_type(name)
         candidate_sha = scope.candidate_sha or compute_candidate_sha(
-            {"action": action_type, "actor": subject or "operator"})
+            {"action": action_type, "actor": requester or "operator"})
         context = ApprovalContext(
             workflow_id=scope.workflow_id or "chatbi-maintain-model",
             run_id=scope.run_id or "run",
@@ -420,7 +422,7 @@ def build_tool_hooks(
                 coordinator=approvals,
                 context=context,
                 action_type=action_type,
-                requester_subject=subject or "operator",
+                requester_subject=requester or "operator",
                 candidate_sha=candidate_sha,
                 evidence_refs=tuple(
                     e.get("evidence_source", "")
@@ -448,10 +450,16 @@ def build_tool_hooks(
                                     recovery="Re-request the approval")
             _emit_tool_blocked(event_log, scope, name, payload)
             return payload
+        # Kernel re-verification BEFORE execution (先验后续). The AgentOS
+        # confirmation is the transport; the governance judgment treats the
+        # confirmation as the configured superuser's action (ADR-002: the
+        # Kernel is authoritative) — the run user stays the requester, so
+        # requester != resolver is enforced (a superuser-run requesting its
+        # own protected action is rejected).
         superuser = getattr(deployment, "superuser_subject", None)
         violations = reverify_before_execute(
             record,
-            subject=subject,
+            subject=superuser or "",
             current_candidate_sha=candidate_sha,
             config=config,
             superuser_subject=superuser,
@@ -460,8 +468,6 @@ def build_tool_hooks(
             clock=clock,
         )
         if violations:
-            from .events import emit_standard_event
-
             emit_standard_event(
                 event_log,
                 run_id=scope.run_id or "run",
@@ -482,6 +488,21 @@ def build_tool_hooks(
                          "human-owner approval")
             _emit_tool_blocked(event_log, scope, name, payload)
             return payload
+        # PASS: the confirmation is valid — record the resolution event
+        # (the record stays coordinator-authoritative; the event is the
+        # audit trail) then execute the tool.
+        emit_standard_event(
+            event_log,
+            run_id=scope.run_id or "run",
+            session_id=scope.session_id or "session",
+            workflow_id=scope.workflow_id or "chatbi-maintain-model",
+            step_id=name,
+            event_type="approval.resolved",
+            payload={"approval_id": record.approval_id,
+                     "resolution": "approved",
+                     "candidate_sha": record.candidate_sha},
+            evidence_refs=record.evidence_refs,
+        )
         return func(**args)
 
     # -- layer 5: per-tool kernel judgments ---------------------------------

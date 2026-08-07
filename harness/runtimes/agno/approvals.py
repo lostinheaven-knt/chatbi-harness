@@ -452,61 +452,23 @@ class ChatBIApprovalCoordinator:
                 ),
             )
 
-        # 1. Trusted subject (the router supplies it from the auth context).
-        if not isinstance(subject, str) or not subject:
-            return self._reject(
-                record, "subject is missing; approvals require a trusted "
-                "authenticated subject (fail-closed)"
-            )
-        if subject == "agent" or subject.startswith("agent:"):
-            return self._reject(
-                record, "an Agent actor can never approve (SEM-003)"
-            )
-        # 2. MVP single superuser role check (adjudication five).
-        superuser = getattr(self.deployment, "superuser_subject", None)
-        if not superuser:
-            return self._reject(
-                record, "no superuser is configured; approval cannot be "
-                "resolved (fail-closed, adjudication five)"
-            )
-        if subject != superuser:
-            return self._reject(
-                record,
-                f"subject {subject!r} is not the configured superuser; "
-                "role re-verification failed",
-            )
-        # 3. No self-approval (design §6.1).
-        if subject == record.requester_subject:
-            return self._reject(
-                record, "requester cannot approve their own protected action"
-            )
-        # 4. Expiry (design §11.1).
-        if self._is_expired(record):
-            return self._reject(
-                record, "approval is expired; a new approval must be requested"
-            )
-        # 5. Candidate SHA unchanged.
-        if current_candidate_sha is not None:
-            if current_candidate_sha != record.candidate_sha:
-                return self._reject(
-                    record,
-                    "candidate SHA changed since approval request "
-                    f"({record.candidate_sha} -> {current_candidate_sha}); "
-                    "re-apply (design §17 row 6)",
-                )
-        # 6. Evidence still present and consistent (ADR-003).
-        evidence_violations = self._verify_evidence(record)
-        if evidence_violations:
-            return self._reject(
-                record,
-                "evidence re-verification failed: "
-                + "; ".join(evidence_violations),
-            )
-
-        # Kernel policy re-check with the human owner actor (SEM-003 pass).
-        decision = self._policy_decision(record.action_type, subject)
-        if decision is not None and decision.status == "block":
-            return self._reject(record, decision.reason)
+        # DRY (skill+hooks module D): the seven-step Kernel re-verification
+        # is the SAME check the approval_verify_hook runs before a protected
+        # tool executes (reverify_before_execute) — resolve() reuses it and
+        # maps violations to a rejected record.
+        violations = reverify_before_execute(
+            record,
+            subject=subject,
+            current_candidate_sha=current_candidate_sha,
+            config=self.config,
+            superuser_subject=getattr(self.deployment, "superuser_subject",
+                                      None),
+            evidence_index=self.evidence_index,
+            workspace_root=self.workspace_root,
+            clock=self.clock,
+        )
+        if violations:
+            return self._reject(record, "; ".join(violations))
 
         # PASS: mark approved, persist, emit, then continue.
         resolved = ApprovalRecord(
@@ -697,23 +659,34 @@ def reverify_before_execute(
                 "re-apply (design §17 row 6)"
             )
 
-    # 6. Evidence still present and consistent (ADR-003).
-    if evidence_index is not None and workspace_root is not None:
-        for ref in record.evidence_refs:
-            if not ref:
-                continue
-            rows = evidence_index.lookup(run_id=None)
-            matches = [r for r in rows if ref in r.path]
-            if not matches:
-                violations.append(f"evidence ref not indexed: {ref}")
-                continue
-            for row in matches:
-                path = workspace_root / row.path
-                if not path.is_file():
-                    violations.append(f"evidence file missing: {row.path}")
+    # 6. Evidence still present and consistent (ADR-003). Missing index with
+    #    recorded refs is fail-closed (matches resolve()'s historical check).
+    if record.evidence_refs:
+        if evidence_index is None:
+            violations.append(
+                "evidence index unavailable; cannot verify evidence refs "
+                "(fail-closed)")
+        elif workspace_root is not None:
+            for ref in record.evidence_refs:
+                if not ref:
+                    continue
+                rows = evidence_index.lookup(run_id=None)
+                matches = [r for r in rows if ref in r.path]
+                if not matches:
+                    violations.append(f"evidence ref not indexed: {ref}")
+                    continue
+                for row in matches:
+                    path = workspace_root / row.path
+                    if not path.is_file():
+                        violations.append(f"evidence file missing: {row.path}")
 
-    # 7. Kernel policy with the human owner actor (SEM-003 pass).
-    if config is not None:
+    # 7. Kernel policy with the human owner actor (SEM-003 pass). A missing
+    #    governance config is fail-closed (LOW-2).
+    if config is None:
+        violations.append(
+            "governance config is unavailable; the protected action cannot "
+            "be decided (fail-closed, LOW-2)")
+    else:
         decision = decide(
             config,
             PolicyRequest(
