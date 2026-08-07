@@ -516,6 +516,7 @@ def build_tool_hooks(
         harness_release=harness_release,
         reviewer_runner=reviewer_runner,
         native_runner=native_runner,
+        ir_workflows=ir_workflows,
     )
 
     # -- layer 6: event envelope (requested / completed) --------------------
@@ -577,6 +578,7 @@ def _build_domain_hook(
     harness_release: str,
     reviewer_runner: Any,
     native_runner: Callable[..., Any] | None,
+    ir_workflows: Mapping[str, Any] | None = None,
 ) -> Callable[..., Any]:
     """Dispatch per governance tool; every judgment goes through the Kernel."""
 
@@ -657,9 +659,6 @@ def _build_domain_hook(
             dict(content) if isinstance(content, Mapping)
             else {"content": content}
         )
-        if tier == "T3":
-            # C004: raw exploration is lower-confidence evidence.
-            payload["low_confidence"] = True
         entry = EvidenceEntry.create(
             source_tier=tier, evidence_source=_TIER_SOURCE[tier],
             rule_ids=_TIER_RULE_IDS[tier], payload=payload,
@@ -716,9 +715,6 @@ def _build_domain_hook(
             step_id=name, event_type="review.started",
             payload={"candidate_sha": candidate_sha},
         )
-        result = func(**args)  # tool body invoked the reviewer runner
-        verdict = (result or {}).get("verdict") if isinstance(result, Mapping) else None
-
         def _fail(rule_ids: tuple[str, ...], reason: str,
                   recovery: str) -> dict[str, Any]:
             entry = EvidenceEntry.create(
@@ -741,6 +737,15 @@ def _build_domain_hook(
             )
             return _deny_raw(name, rule_ids=rule_ids, reason=reason,
                              recovery=recovery)
+
+        try:
+            result = func(**args)  # tool body invoked the reviewer runner
+        except Exception as error:  # noqa: BLE001 - reviewer unavailable
+            return _fail(_RULES_UNAVAILABLE,
+                         f"reviewer unavailable: {type(error).__name__} "
+                         f"(fail-closed, HOOK-004)",
+                         "Restore the reviewer and re-review")
+        verdict = (result or {}).get("verdict") if isinstance(result, Mapping) else None
 
         if not isinstance(verdict, Mapping):
             return _fail(_RULES_UNAVAILABLE,
@@ -827,12 +832,10 @@ def _build_domain_hook(
                 name, rule_ids=("SRC-002", "HOOK-004"),
                 reason=f"codebase cross-check failed: {type(error).__name__}",
                 recovery="Resolve the codebase read error and re-run")
-        if evidence.status in ("blocked", "error"):
-            return _deny_raw(
-                name, rule_ids=("SRC-002",),
-                reason=evidence.reason or "codebase cross-check blocked",
-                recovery=evidence.recovery or "Ask the domain owner for the "
-                         "correct alias/path")
+        # A blocked/error cross-check is RECORDED as evidence (NOT denied at
+        # the tool edge): the SRC-002 route decision belongs to the
+        # build-plan hook / delivery gate (classify_src002_finding routes
+        # blocked evidence to route A — owner adjudication, E010 semantics).
         entry = EvidenceEntry.create(
             source_tier="T2", evidence_source="codebase-crosscheck",
             rule_ids=("SRC-002",),
@@ -841,6 +844,7 @@ def _build_domain_hook(
             runtime_name="agno", native_run_id=scope.run_id or "",
             harness_release=harness_release,
         )
+        scope.evidence_chain.append(entry.to_dict())
         _record(name, "src002_crosscheck", entry)
         result = func(**args)
         if isinstance(result, Mapping):
@@ -848,6 +852,14 @@ def _build_domain_hook(
         return result
 
     # --- chatbi_build_plan -------------------------------------------------
+    def _bfr_ir_rules() -> tuple[str, ...]:
+        wf = ir_workflows.get("chatbi-build-from-requirement")
+        if wf is not None and getattr(wf, "gates", None) is not None:
+            delivery = getattr(wf.gates, "delivery", None)
+            if delivery is not None and getattr(delivery, "rule_ids", ()):
+                return tuple(delivery.rule_ids)
+        return ("SRC-002", "SEM-003", "REQ-001", "REQ-002")
+
     def _build_plan(name: str, func: Callable[..., Any],
                     args: Mapping[str, Any]) -> Any:
         from chatbi_governance.build_plan import BuildPlan, build_model_entry
@@ -855,6 +867,40 @@ def _build_domain_hook(
         requirement = args.get("requirement")
         req = dict(requirement) if isinstance(requirement, Mapping) else _request()
         try:
+            # SRC-002 route decision (E010: a blocked cross-check -> route A
+            # -> owner adjudication; the delivery gate blocks with the IR
+            # rule set).
+            crosscheck = None
+            for entry in reversed(scope.evidence_chain):
+                if isinstance(entry, Mapping) and entry.get(
+                    "evidence_source"
+                ) == "codebase-crosscheck":
+                    crosscheck = entry
+                    break
+            if crosscheck is not None:
+                payload = crosscheck.get("payload") or {}
+                if isinstance(payload, Mapping):
+                    # CodebaseEvidence semantics: a blocked/error status, an
+                    # error_category, or a nested block decision all mean the
+                    # cross-check did NOT pass (route A, E010).
+                    decision = None
+                    nested = payload.get("payload")
+                    if isinstance(nested, Mapping):
+                        decision = (nested.get("data") or {}).get("decision")
+                    blocked = (
+                        payload.get("status") in ("blocked", "error")
+                        or bool(payload.get("error_category"))
+                        or (isinstance(decision, Mapping)
+                            and decision.get("status") == "block")
+                    )
+                    if blocked:
+                        return _deny_raw(
+                            name, rule_ids=_bfr_ir_rules(),
+                            reason=payload.get("reason")
+                            or "SRC-002 cross-check blocked -> route A "
+                               "(domain-owner adjudication, REQ-001/002)",
+                            recovery="Ask the domain owner for the correct "
+                                     "alias/path")
             entries = []
             for raw in (req.get("models") or []):
                 if not isinstance(raw, Mapping):
@@ -884,6 +930,15 @@ def _build_domain_hook(
                              reason=f"build plan derivation failed: "
                                     f"{type(error).__name__}",
                              recovery="Correct the requirement and re-run")
+        plan_entry = EvidenceEntry.create(
+            source_tier="T2", evidence_source="build-plan",
+            rule_ids=_bfr_ir_rules(),
+            payload={"models": [entry.to_dict() for entry in entries],
+                     "status": "pass"},
+            runtime_name="agno", native_run_id=scope.run_id or "",
+            harness_release=harness_release,
+        )
+        _record(name, "build_plan", plan_entry)
         result = func(**args)
         if isinstance(result, Mapping):
             return {**dict(result), "build_plan": {
@@ -928,6 +983,14 @@ def _build_domain_hook(
                 recovery="Sync every affected asset with sufficient evidence "
                          "and no P0 evaluation failure")
         scope.impact = manifest.to_dict()
+        entry = EvidenceEntry.create(
+            source_tier="T2", evidence_source="impact-manifest",
+            rule_ids=("DOC-004",),
+            payload={"status": "pass", "target": str(request.get("target", ""))},
+            runtime_name="agno", native_run_id=scope.run_id or "",
+            harness_release=harness_release,
+        )
+        _record(name, "impact_manifest", entry)
         result = func(**args)
         if isinstance(result, Mapping):
             return {**dict(result), "impact": manifest.to_dict()}
@@ -964,6 +1027,15 @@ def _build_domain_hook(
             append_model_registry(registry_path, entry)
         except GateError as error:
             return _deny(name, error.decision)
+        entry = EvidenceEntry.create(
+            source_tier="T2", evidence_source="model-registry",
+            rule_ids=("DOC-004", "SEM-003"),
+            payload={"appended": True,
+                     "name": str(request.get("target", ""))},
+            runtime_name="agno", native_run_id=scope.run_id or "",
+            harness_release=harness_release,
+        )
+        _record(name, "registry_append", entry)
         result = func(**args)
         if isinstance(result, Mapping):
             return {**dict(result), "registry_appended": True}
@@ -981,6 +1053,14 @@ def _build_domain_hook(
                     f"{i.field}: {i.message}" for i in issues[:3]),
                 recovery="Resolve the lint issues via the governed reference "
                          "authoring flow")
+        entry = EvidenceEntry.create(
+            source_tier="T2", evidence_source="knowledge-lint",
+            rule_ids=("DOC-002", "DOC-003"),
+            payload={"ready": True, "issue_count": 0},
+            runtime_name="agno", native_run_id=scope.run_id or "",
+            harness_release=harness_release,
+        )
+        _record(name, "lint", entry)
         result = func(**args)
         if isinstance(result, Mapping):
             return {**dict(result), "lint": {"ready": True}}
@@ -1035,12 +1115,26 @@ def _build_domain_hook(
             validate_evaluation(run.to_dict())  # EVAL-004 fail-closed
         except GateError as error:
             return _deny(name, error.decision)
+        run_dict = run.to_dict()
+        entry = EvidenceEntry.create(
+            source_tier="T2", evidence_source="evaluation-run",
+            rule_ids=("EVAL-003", "EVAL-004", "FBK-003"),
+            payload={"passed": run.passed_count,
+                     "total": run_dict.get("total_count", len(run.assertions)),
+                     "all_passed": run.all_passed,
+                     "release": bool(request.get("release", False)),
+                     "fbk_003_statement": run_dict.get("fbk_003_statement", "")},
+            runtime_name="agno", native_run_id=scope.run_id or "",
+            harness_release=harness_release,
+        )
+        _record(name, "evaluation", entry)
         result = func(**args)
         if isinstance(result, Mapping):
             return {**dict(result), "evaluation": {
-                "passed": run.passed_count, "total": run.total_count,
+                "passed": run.passed_count,
+                "total": run_dict.get("total_count", len(run.assertions)),
                 "all_passed": run.all_passed,
-                "fbk_003_statement": run.fbk_003_statement}}
+                "fbk_003_statement": run_dict.get("fbk_003_statement", "")}}
         return result
 
     # --- chatbi_correction -------------------------------------------------
@@ -1622,6 +1716,130 @@ class ChatbiDeliveryGuardrail(BaseGuardrail):
         return review
 
     # ------------------------------------------------------------------
+    def _ir_delivery_rules(self, workflow_id: str,
+                           default: tuple[str, ...]) -> tuple[str, ...]:
+        """The IR workflow's ``gates.delivery.rule_ids`` (fail-closed fallback
+        to the module-5 defaults)."""
+        workflow = self.ir_workflows.get(workflow_id)
+        if workflow is not None and getattr(workflow, "gates", None) is not None:
+            delivery = getattr(workflow.gates, "delivery", None)
+            if delivery is not None and getattr(delivery, "rule_ids", ()):
+                return tuple(delivery.rule_ids)
+        return default
+
+    def _run_evidence_sources(self, run_id: str) -> dict[str, dict[str, Any]]:
+        """Every recorded evidence entry for the run, keyed by source."""
+        sources: dict[str, dict[str, Any]] = {}
+        for row in self._run_evidence_rows(run_id):
+            entry = self._read_entry(row)
+            if not entry:
+                continue
+            source = entry.get("evidence_source", "")
+            if source:
+                sources[source] = entry
+        return sources
+
+    def _tool_blocked_rules(self, run_id: str) -> tuple[str, ...]:
+        """Union of rule_ids across the run's tool.blocked events (the
+        domain-hook denies are the specific verdicts for the generic
+        workflows)."""
+        rules: list[str] = []
+        seen: set[str] = set()
+        try:
+            events = self.event_log.replay(run_id).events
+        except Exception:  # noqa: BLE001 - no log -> no blocked signal
+            return ()
+        for event in events:
+            if event.get("event_type") != "tool.blocked":
+                continue
+            payload = event.get("payload") or {}
+            for rule in payload.get("rule_ids", []) or []:
+                if isinstance(rule, str) and rule not in seen:
+                    seen.add(rule)
+                    rules.append(rule)
+        return tuple(rules)
+
+    def _check_generic(self, run_id: str, session_id: str,
+                       workflow_id: str) -> tuple[tuple[str, ...], str, str]:
+        """Non-analyze delivery verdict (E-series semantics, mirroring the
+        module-5 per-workflow verdict dispatch):
+
+        - any tool.blocked deny -> block with its rule_ids;
+        - init: the diagnostic evidence status BLOCKED -> block with the IR
+          rule set;
+        - bootstrap/bfr/evaluate/audit-drift: their recorded evidence
+          decides pass/block with the IR rule set;
+        - maintain-model/correction: a protected-action run reaching the
+          terminal gate without the approval resolution is blocked.
+        Returns ``(rule_ids, reason, recovery)``; empty rule_ids = PASS.
+        """
+        blocked_rules = self._tool_blocked_rules(run_id)
+        if blocked_rules:
+            return (blocked_rules,
+                    "a governance tool was denied (see tool.blocked)",
+                    "Resolve the blocked tool's recovery action and re-run")
+        sources = self._run_evidence_sources(run_id)
+        ir_rules = self._ir_delivery_rules(
+            workflow_id, ("PORT-001", "SEC-003", "HOOK-004"))
+        if workflow_id == "chatbi-init":
+            diag = sources.get("init-diagnostic", {})
+            payload = diag.get("payload") or {}
+            if payload.get("status") == "BLOCKED":
+                return (ir_rules,
+                        "init diagnostic reports blocking failures "
+                        "(production_ready stays False)",
+                        "; ".join(payload.get("recovery_actions", []) or [])
+                        or "Fix the blocked checks and re-run init")
+            if not diag:
+                return (ir_rules, "init diagnostic did not run",
+                        "Re-run the init diagnostic")
+            return (), "", ""
+        if workflow_id == "chatbi-bootstrap":
+            if not sources.get("bootstrap-inventory"):
+                return (ir_rules,
+                        "bootstrap did not produce a validated source "
+                        "inventory",
+                        "Re-run the bootstrap chain")
+            return (), "", ""
+        if workflow_id == "chatbi-build-from-requirement":
+            if not sources.get("build-plan"):
+                return (ir_rules,
+                        "SRC-002 route not resolved to a validated build "
+                        "plan (route A requires owner adjudication, "
+                        "REQ-001/002)",
+                        "Resolve the SRC-002 route and re-run")
+            return (), "", ""
+        if workflow_id == "chatbi-evaluate":
+            run_entry = sources.get("evaluation-run", {})
+            payload = run_entry.get("payload") or {}
+            if not run_entry or not payload.get("all_passed"):
+                return (ir_rules,
+                        "evaluation release gate not passed (EVAL-004)",
+                        "Meet the owner-confirmed release threshold and "
+                        "re-run")
+            return (), "", ""
+        if workflow_id == "chatbi-audit-drift":
+            if not sources.get("drift-report"):
+                return (ir_rules, "drift audit produced no report",
+                        "Fix the drift detection chain and re-run")
+            return (), "", ""
+        if workflow_id == "chatbi-maintain-knowledge":
+            if not sources.get("knowledge-lint"):
+                return (ir_rules,
+                        "reference lint found issues (DOC-002/003)",
+                        "Resolve the lint issues via the governed reference "
+                        "authoring flow")
+            return (), "", ""
+        # maintain-model / correction: a protected-action run must have been
+        # paused for approval; reaching the terminal gate unresolved blocks.
+        if not sources:
+            return (ir_rules,
+                    "no governed evidence was recorded for the run",
+                    "Re-run the governed flow with the required evidence")
+        return (ir_rules,
+                "delivery gate requirement not met for this workflow",
+                "Complete the governed flow and re-run")
+
     def _final_candidate(self, run_output: Any) -> Any:
         content = getattr(run_output, "content", None)
         if isinstance(content, str):
@@ -1641,9 +1859,10 @@ class ChatbiDeliveryGuardrail(BaseGuardrail):
         chain + request — mirrors the old footer_assembly step."""
         tiers = [e["source_tier"] for e in tier_chain if e["source_tier"]]
         source_tier = tiers[-1] if tiers else "T1"
-        low_confidence = any(
-            (e.get("payload") or {}).get("low_confidence") for e in tier_chain
-        )
+        # C004: raw exploration (T3) is lower-confidence evidence — the
+        # semantic is registered by the tier, not a payload marker (the
+        # payload hash must stay the golden-pinned content).
+        low_confidence = "T3" in tiers
         return {
             "question": request.get("question", ""),
             "time_range": request.get("time_range", ""),
@@ -1680,8 +1899,17 @@ class ChatbiDeliveryGuardrail(BaseGuardrail):
         session_id = getattr(run_output, "session_id", "") or (
             getattr(run_context, "session_id", "") or "session"
         )
-        workflow_id = getattr(run_output, "workflow_id", "") or (
-            getattr(run_context, "workflow_id", "") or "chatbi-analyze"
+        # A native Agent's RunOutput carries no workflow_id (the envelope
+        # routing lives in the run scope, set by the RequestGuardrail) —
+        # the scope is the authoritative workflow selector (M7 note).
+        scope_workflow = ""
+        if self.run_scope is not None:
+            scope_workflow = self.run_scope.workflow_id or ""
+        workflow_id = (
+            scope_workflow
+            or getattr(run_output, "workflow_id", "")
+            or (getattr(run_context, "workflow_id", "") or "")
+            or "chatbi-analyze"
         )
         if self.run_scope is not None:
             self.run_scope.run_id = run_id
@@ -1695,32 +1923,38 @@ class ChatbiDeliveryGuardrail(BaseGuardrail):
         rule_ids: tuple[str, ...] = ()
         reason = ""
         recovery = "Re-run the governed flow with a complete evidence chain"
-        if not tier_chain and review is None:
-            rule_ids = ("REV-003", "HOOK-004")
-            reason = ("no evidence chain and no review were recorded; the "
-                      "candidate cannot be delivered (C002)")
-        elif review is None:
-            rule_ids = ("REV-001", "REV-003")
-            reason = "no independent review was recorded (REV-001/002/003)"
-        elif review.get("status") != "PASS":
-            rule_ids = tuple(review.get("rule_ids") or _RULES_NOT_PASS)
-            reason = review.get("reason") or (
-                "review verdict is not a clean PASS for the frozen candidate")
-            recovery = "Address every blocking finding and re-review"
-        else:
-            final_candidate = self._final_candidate(run_output)
-            try:
-                final_sha = compute_candidate_sha(final_candidate)
-            except (TypeError, ValueError):
-                final_sha = ""
-            if review.get("candidate_sha") != final_sha:
-                rule_ids = _RULES_STALE_SHA
-                reason = (
-                    "final candidate changed after the review PASS; "
-                    "REV-001: the answer must be re-reviewed")
-                recovery = "Re-submit the reviewed candidate unchanged"
+        if workflow_id == "chatbi-analyze":
+            if not tier_chain and review is None:
+                rule_ids = ("REV-003", "HOOK-004")
+                reason = ("no evidence chain and no review were recorded; "
+                          "the candidate cannot be delivered (C002)")
+            elif review is None:
+                rule_ids = ("REV-001", "REV-003")
+                reason = "no independent review was recorded (REV-001/002/003)"
+            elif review.get("status") != "PASS":
+                rule_ids = tuple(review.get("rule_ids") or _RULES_NOT_PASS)
+                reason = review.get("reason") or (
+                    "review verdict is not a clean PASS for the frozen "
+                    "candidate")
+                recovery = "Address every blocking finding and re-review"
             else:
-                rule_ids = ()
+                final_candidate = self._final_candidate(run_output)
+                try:
+                    final_sha = compute_candidate_sha(final_candidate)
+                except (TypeError, ValueError):
+                    final_sha = ""
+                if review.get("candidate_sha") != final_sha:
+                    rule_ids = _RULES_STALE_SHA
+                    reason = (
+                        "final candidate changed after the review PASS; "
+                        "REV-001: the answer must be re-reviewed")
+                    recovery = "Re-submit the reviewed candidate unchanged"
+                else:
+                    rule_ids = ()
+        else:
+            # Generic workflows: per-workflow delivery verdict (E-series).
+            rule_ids, reason, recovery = self._check_generic(
+                run_id, session_id, workflow_id)
 
         if rule_ids:
             decision = GateDecision.block(
@@ -1749,31 +1983,34 @@ class ChatbiDeliveryGuardrail(BaseGuardrail):
             )
 
         # PASS: provenance footer (F1 contract) then run.completed (ADR-002).
-        request = self.run_scope.request if self.run_scope is not None else {}
-        try:
-            footer = self._assemble_footer(
-                run_id, workflow_id, request, tier_chain, review)
-            validate_provenance(footer)
-        except GateError as error:
-            decision = error.decision
+        # The footer contract is ANALYZE-specific (the E-series workflows
+        # carry their own governed evidence; no analyze footer exists).
+        if workflow_id == "chatbi-analyze":
+            request = self.run_scope.request if self.run_scope is not None else {}
             try:
-                emit_standard_event(
-                    self.event_log, run_id=run_id, session_id=session_id,
-                    workflow_id=workflow_id, step_id="footer_assembly",
-                    event_type="gate.blocked",
-                    payload={"gate": "delivery",
-                             "decision": decision.to_dict()},
-                    evidence_refs=decision.evidence_refs,
+                footer = self._assemble_footer(
+                    run_id, workflow_id, request, tier_chain, review)
+                validate_provenance(footer)
+            except GateError as error:
+                decision = error.decision
+                try:
+                    emit_standard_event(
+                        self.event_log, run_id=run_id, session_id=session_id,
+                        workflow_id=workflow_id, step_id="footer_assembly",
+                        event_type="gate.blocked",
+                        payload={"gate": "delivery",
+                                 "decision": decision.to_dict()},
+                        evidence_refs=decision.evidence_refs,
+                    )
+                except ValueError:
+                    pass
+                raise OutputCheckError(
+                    message=(
+                        f"ChatBI provenance footer failed: {decision.reason} "
+                        f"— recovery: {decision.recovery}"
+                    ),
+                    additional_data={"rule_ids": list(decision.rule_ids)},
                 )
-            except ValueError:
-                pass
-            raise OutputCheckError(
-                message=(
-                    f"ChatBI provenance footer failed: {decision.reason} — "
-                    f"recovery: {decision.recovery}"
-                ),
-                additional_data={"rule_ids": list(decision.rule_ids)},
-            )
 
         emit_standard_event(
             self.event_log, run_id=run_id, session_id=session_id,

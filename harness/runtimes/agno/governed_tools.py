@@ -356,7 +356,7 @@ def _make_record_request(scope: RunScope) -> Callable[..., dict]:
 
 def _make_record_evidence(scope: RunScope) -> Callable[..., dict]:
     def chatbi_record_evidence(
-        tier: str, content: str, refs: list | None = None
+        tier: str, content: Any, refs: list | None = None
     ) -> dict[str, Any]:
         """Record one evidence entry for a source tier (T1/T2/T3); the
         tier-gap hook enforces the T2/T3 preconditions and persists the
@@ -368,7 +368,7 @@ def _make_record_evidence(scope: RunScope) -> Callable[..., dict]:
 
 
 def _make_submit_candidate(scope: RunScope) -> Callable[..., dict]:
-    def chatbi_submit_candidate(content: str) -> dict[str, Any]:
+    def chatbi_submit_candidate(content: Any) -> dict[str, Any]:
         """Freeze the final candidate; the candidate-bind hook computes its
         SHA-256 (kernel) and binds the evidence chain to it."""
         return _echo("chatbi_submit_candidate", content=content)
