@@ -184,6 +184,65 @@ def _default_reviewer_runner(agent: Any) -> ReviewerRunner:
     return _run
 
 
+def build_review_tool(
+    *,
+    reviewer_agent: Any,
+    reviewer_runner: Any = None,
+    run_scope: Any = None,
+) -> Callable[[str], dict]:
+    """``chatbi_review`` governance-tool function body (skill+hooks module A).
+
+    The tool body calls the reviewer runner (the injected stub for
+    conformance, or ``_default_reviewer_runner(reviewer_agent)`` live) and
+    returns the RAW verdict payload. All verdict validation (JSON parsing is
+    inside the runner; schema ``validate_review``, exact candidate-SHA match
+    REV-001/002, REV-003 round limit) is performed by the review hook
+    (``runtimes.agno.hooks``, module B) on the RETURN path — the tool
+    function only calls the reviewer and fetches the verdict (design §1.3).
+
+    ``run_scope`` is the shared tools<->hooks run-identity holder
+    (``governed_tools.RunScope``): the review context carries the frozen
+    candidate SHA + the evidence chain (references only) + run id + round,
+    so the reviewer cannot drift from the exact candidate (design §7).
+
+    A missing runner is fail-closed: the tool returns an error payload and
+    the review hook blocks (HOOK-004) — never an implicit pass.
+    """
+    runner = reviewer_runner
+    if runner is None:
+        runner = _default_reviewer_runner(reviewer_agent)
+
+    def _review(candidate_sha: str) -> dict:
+        if runner is None:
+            return {
+                "tool": "chatbi_review",
+                "status": "requested",
+                "candidate_sha": candidate_sha,
+                "error": "reviewer runner unavailable (fail-closed)",
+            }
+        context = {
+            "task": "adversarial_review",
+            "candidate_sha": candidate_sha,
+            "reviewer_context_hash": candidate_sha,
+            "run_id": getattr(run_scope, "run_id", None) or "run",
+            "round": int(getattr(run_scope, "review_round", 1) or 1),
+            "evidence_refs": [
+                e.get("evidence_source")
+                for e in (getattr(run_scope, "evidence_chain", ()) or ())
+                if isinstance(e, Mapping)
+            ],
+        }
+        verdict = runner(context)
+        return {
+            "tool": "chatbi_review",
+            "status": "requested",
+            "candidate_sha": candidate_sha,
+            "verdict": dict(verdict) if isinstance(verdict, Mapping) else verdict,
+        }
+
+    return _review
+
+
 def run_review(
     *,
     run_record: Any,

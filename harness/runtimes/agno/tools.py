@@ -1,24 +1,29 @@
-"""IR tool-allowlist enforcement for Agno agent steps (module 5, MAJOR-2 fix).
+"""IR tool-allowlist enforcement for the ChatBI agent (module 5, MAJOR-2 fix;
+skill+hooks module A adaptation).
 
-The analyze IR declares per-step ``tools.allow``/``tools.deny`` lists (and a
-workflow-level default). The Adapter enforces them at the agent-step
-execution boundary:
+The IR declares per-step ``tools.allow``/``tools.deny`` lists (and a
+workflow-level default). In the skill+hooks architecture the enforcement
+moves from "step-agent construction filtering" to two edges:
 
 - :class:`StepToolPolicy` — the deterministic judgment ``check(tool)``:
   deny priority, allowlist semantics (anything not explicitly allowed is
   blocked — the design's "非 allowlist → BLOCK" rule, C011 semantic);
-- :func:`filter_agent_tools` — the REAL agno mechanism for live mode: the
-  step agent is constructed with its tool surface filtered by the policy, so
-  the runtime physically cannot invoke a non-allowlisted tool;
+- :func:`filter_agent_tools` — semantics ADJUSTED (design §1.3): it is no
+  longer used to filter an agent-step tool surface (there are no agent
+  steps); its pure filter stays available for ① agent_builder assembly
+  (register governance tools + read-only file tools per the workflow tool
+  surface) and ② the allowlist hook (``runtimes.agno.hooks``, module B)
+  denies at runtime by NOT calling ``next_func`` — the strongest allowlist
+  is "unregistered = unavailable", the hook is the second line (C011);
 - :data:`TOOL_NAME_MAP` — agno 2.6.22 tool names (``read_file``,
   ``list_files``, ``search_files``, ``search_content``, …) mapped onto the
   IR vocabulary (``Read``/``Grep``/``Glob``/``Bash``/…); unmapped agno tools
   are blocked (fail-closed).
 
-When an out-of-allowlist tool call is attempted, the adapter emits a
-``tool.blocked`` standard event and the run fails fail-closed (the tool is
-never executed). All judgments are deterministic IR lookups (HOOK-001);
-no second business rule lives here (invariant 2).
+When an out-of-allowlist tool call is attempted, the hook emits a
+``tool.blocked`` standard event and the tool is never executed (fail-closed).
+All judgments are deterministic IR lookups (HOOK-001); no second business
+rule lives here (invariant 2).
 
 Applicable rules: HOOK-001, SEC-001, MR-005, invariant 2/5.
 """
@@ -102,5 +107,11 @@ def tool_name_of(tool: Any) -> str:
 
 
 def filter_agent_tools(tools: Iterable[Any], policy: StepToolPolicy) -> list[Any]:
-    """Filter an agno tool list by the policy (live-mode enforcement)."""
+    """Filter a tool list by the policy (pure filter, module A semantics).
+
+    In the skill+hooks architecture this is used at ① agent_builder assembly
+    (registering the governance tool surface + read-only file tools) and
+    ② the allowlist hook (module B) as the deterministic judgment; the
+    runtime denial happens by not calling ``next_func`` (never executes the
+    tool)."""
     return [tool for tool in tools if policy.check(tool_name_of(tool))]

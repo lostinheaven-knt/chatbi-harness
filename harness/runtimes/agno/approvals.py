@@ -608,6 +608,152 @@ def _context_from_record(record: ApprovalRecord, harness_release: str) -> Approv
     )
 
 
+def reverify_before_execute(
+    record: ApprovalRecord,
+    *,
+    subject: str,
+    current_candidate_sha: str | None = None,
+    config: Any = None,
+    superuser_subject: str | None = None,
+    evidence_index: Any = None,
+    workspace_root: Path | None = None,
+    clock: Any = None,
+) -> list[str]:
+    """Kernel re-verification BEFORE a protected tool executes (module D).
+
+    = ``resolve()``'s seven-step check subset, WITHOUT the on_approved
+    continue-wiring: the AgentOS confirmation flow has already happened (the
+    tool call is about to execute); this function re-verifies that the
+    approval is still valid at execution time:
+
+      1. subject is a trusted human (never an agent actor, SEM-003);
+      2. subject matches the configured superuser (fail-closed when none);
+      3. requester != resolver (no self-approval);
+      4. not expired;
+      5. candidate SHA unchanged (stale-SHA BLOCK);
+      6. evidence refs still present and hash-consistent (ADR-003);
+      7. ``policy.decide`` with the human owner actor does not block.
+
+    Returns the violation list; empty = PASS (the tool may execute). Any
+    violation -> the caller denies the tool (never executes) and re-applies.
+    """
+    violations: list[str] = []
+
+    # 1. Trusted subject (never from a request body; SEC-003).
+    if not isinstance(subject, str) or not subject:
+        violations.append(
+            "subject is missing; approvals require a trusted authenticated "
+            "subject (fail-closed)"
+        )
+        return violations
+    if subject == "agent" or subject.startswith("agent:"):
+        violations.append("an Agent actor can never approve (SEM-003)")
+        return violations
+
+    # 2. MVP single superuser role check (adjudication five).
+    superuser = superuser_subject
+    if not superuser:
+        violations.append(
+            "no superuser is configured; approval cannot be resolved "
+            "(fail-closed, adjudication five)"
+        )
+        return violations
+    if subject != superuser:
+        violations.append(
+            f"subject {subject!r} is not the configured superuser; role "
+            "re-verification failed"
+        )
+        return violations
+
+    # 3. No self-approval (design §6.1).
+    if subject == record.requester_subject:
+        violations.append(
+            "requester cannot approve their own protected action"
+        )
+        return violations
+
+    # 4. Expiry (design §11.1).
+    if record.expires_at:
+        try:
+            expires = datetime.fromisoformat(record.expires_at)
+            now = datetime.now(timezone.utc)
+            if clock is not None:
+                now = datetime.fromtimestamp(clock(), tz=timezone.utc)
+            if expires.tzinfo is None:
+                expires = expires.replace(tzinfo=timezone.utc)
+            if now > expires:
+                violations.append(
+                    "approval is expired; a new approval must be requested"
+                )
+        except ValueError:
+            violations.append("approval expiry is unparseable (fail-closed)")
+
+    # 5. Candidate SHA unchanged.
+    if current_candidate_sha is not None:
+        if current_candidate_sha != record.candidate_sha:
+            violations.append(
+                "candidate SHA changed since approval request "
+                f"({record.candidate_sha} -> {current_candidate_sha}); "
+                "re-apply (design §17 row 6)"
+            )
+
+    # 6. Evidence still present and consistent (ADR-003).
+    if evidence_index is not None and workspace_root is not None:
+        for ref in record.evidence_refs:
+            if not ref:
+                continue
+            rows = evidence_index.lookup(run_id=None)
+            matches = [r for r in rows if ref in r.path]
+            if not matches:
+                violations.append(f"evidence ref not indexed: {ref}")
+                continue
+            for row in matches:
+                path = workspace_root / row.path
+                if not path.is_file():
+                    violations.append(f"evidence file missing: {row.path}")
+
+    # 7. Kernel policy with the human owner actor (SEM-003 pass).
+    if config is not None:
+        decision = decide(
+            config,
+            PolicyRequest(
+                request_type=record.action_type,
+                target_entity="",
+                actor=subject,
+                purpose="governed protected action",
+            ),
+        )
+        if decision is not None and decision.status == "block":
+            violations.append(decision.reason)
+
+    return violations
+
+
+def bridge_request_approval(
+    *,
+    coordinator: "ChatBIApprovalCoordinator",
+    context: ApprovalContext,
+    action_type: str,
+    requester_subject: str,
+    candidate_sha: str,
+    evidence_refs: tuple[str, ...] = (),
+) -> ApprovalHandle:
+    """First-call path of an ``@approval`` governance tool (module D).
+
+    Delegates to ``coordinator.request_approval`` (policy.decide precheck
+    SEM-003 + record persistence + ``.chatbi`` Evidence + approval.requested
+    event). Idempotent: a record that already exists for the
+    ``ap_<run_id>_<step_id>`` key is returned unchanged (design §17 row 6).
+    """
+    return coordinator.request_approval(
+        context=context,
+        action_type=action_type,
+        requester_subject=requester_subject,
+        candidate_sha=candidate_sha,
+        evidence_refs=evidence_refs,
+    )
+
+
 def _missing_record(approval_id: str) -> ApprovalRecord:
     return ApprovalRecord(
         approval_id=approval_id,

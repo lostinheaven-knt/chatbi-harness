@@ -301,6 +301,57 @@ class EventLog:
         return 0
 
 
+def emit_standard_event(
+    event_log: EventLog,
+    *,
+    run_id: str,
+    session_id: str,
+    workflow_id: str,
+    step_id: str | None,
+    event_type: str,
+    payload: Mapping[str, Any],
+    evidence_refs: tuple[str, ...] = (),
+    trace_id: str = "",
+    runtime_name: str = "agno",
+) -> dict[str, Any]:
+    """Emit ONE standard ``chatbi.event/v1`` envelope (skill+hooks module B).
+
+    Takes the next monotonic ``event_index`` for the run, builds the envelope
+    (``validate_envelope`` enforced before persistence — a contract violation
+    raises, fail-closed), and appends it to the run's JSONL log. Every
+    hook/guardrail/coordinator emission point goes through this function so
+    the event stream stays monotonically numbered, replayable and
+    deduplicable (design §6.3).
+
+    Agent mode note: standard events are emitted by the hooks/guardrails
+    themselves (agno native events are diagnostic-only); ``step.*`` events
+    are never emitted (no step state machine — M7 semantic difference).
+    """
+    index = event_log.next_index(run_id)
+    envelope = {
+        "schema_version": EVENT_SCHEMA_VERSION,
+        "event_id": f"evt_{run_id}_{index}",
+        "event_index": index,
+        "trace_id": trace_id or f"tr_{run_id}",
+        "session_id": session_id,
+        "run_id": run_id,
+        "workflow_id": workflow_id,
+        "step_id": step_id,
+        "event_type": event_type,
+        "occurred_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+        "runtime": {"name": runtime_name, "native_run_id": run_id},
+        "payload": dict(payload),
+        "evidence_refs": list(evidence_refs),
+    }
+    violations = validate_envelope(envelope)
+    if violations:
+        raise ValueError(
+            f"refusing to emit an invalid standard event: {violations}"
+        )
+    event_log.append(envelope)
+    return envelope
+
+
 def iter_standard_events(
     agno_events: Iterable[Any],
     *,
