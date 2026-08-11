@@ -2204,6 +2204,12 @@ class ChatbiDeliveryGuardrail(BaseGuardrail):
                 rule_ids = ("REV-003", "HOOK-004")
                 reason = ("no evidence chain and no review were recorded; "
                           "the candidate cannot be delivered (C002)")
+                recovery = (
+                    "The run ended without a governed evidence chain — the "
+                    "analysis request was never completed. Provide the "
+                    "missing request details (e.g. the analysis time range) "
+                    "in your next message and re-ask (REQ-001)"
+                )
             elif review is None:
                 rule_ids = ("REV-001", "REV-003")
                 reason = "no independent review was recorded (REV-001/002/003)"
