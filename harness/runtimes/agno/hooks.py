@@ -152,6 +152,36 @@ _SKILL_TOOL_RECOVERY = (
     "for the current workflow (native skill tools are not allowlisted, C011)"
 )
 
+#: Per-run BLOCKED-review ceiling (design-runbook-completion B1): the same
+#: run may accumulate at most 3 ``review.completed``(BLOCKED) events; the
+#: 4th review attempt is denied at the tool edge WITHOUT invoking the
+#: reviewer (terminal deny, payload.terminal=true — zero model cost, the
+#: d5f38994 7-round runaway becomes bounded). Normal fix loops need 1-2
+#: rounds; the 3rd leaves room for genuine reviewer variance (ec09881b
+#: passed then blocked); >3 is pathological. Counting is per-run (event-log
+#: derived, candidate-SHA independent), PASS does not reset the budget, and
+#: budgets never carry across runs (multi-turn dialogue semantics).
+REVIEW_BLOCK_LIMIT = 3
+
+
+def _review_block_count(event_log: Any, run_id: str) -> int:
+    """BLOCKED ``review.completed`` events in the run (event-log derived).
+
+    The event log is the single authoritative per-run counter (HOOK-001:
+    auditable, replayable; the RunScope is a process-shared object reused
+    across runs/sessions — a scope field would need run-boundary resets and
+    is error-prone). Replay cost is bounded (per-run JSONL, 64MB guard).
+    """
+    try:
+        events = event_log.replay(run_id).events
+    except Exception:  # noqa: BLE001 - no log -> count 0 (the delivery
+        return 0        # gate still fails closed; never a silent pass)
+    return sum(
+        1 for e in events
+        if e.get("event_type") == "review.completed"
+        and (e.get("payload") or {}).get("status") == "BLOCKED"
+    )
+
 #: Tier -> IR when precondition for chatbi_record_evidence.
 _TIER_WHEN = {"T2": 'evidence.has_gap("T1")', "T3": 'evidence.has_gap("T2")'}
 _TIER_SOURCE = {"T1": "semantic-layer", "T2": "curated-reference",
@@ -739,6 +769,25 @@ def _build_domain_hook(
     def _review(name: str, func: Callable[..., Any],
                 args: Mapping[str, Any]) -> Any:
         from .events import emit_standard_event
+
+        # B1 (design-runbook-completion): the run-level BLOCK ceiling is
+        # enforced BEFORE the reviewer is invoked — the 4th review attempt
+        # is denied at the tool edge (terminal, payload.terminal=true), the
+        # reviewer is never called (zero model cost), and NO review.started /
+        # review.completed is emitted (no review happened). The agent sees
+        # the deny payload and the runbook tells it to stop this run and
+        # hand off to the user (conversational handover).
+        if _review_block_count(event_log, scope.run_id or "run") >= REVIEW_BLOCK_LIMIT:
+            payload = _deny_payload(
+                name, rule_ids=("REV-003", "HOOK-001"),
+                reason=(f"review attempts exhausted: {REVIEW_BLOCK_LIMIT} "
+                        "BLOCKED reviews in this run (REV-003)"),
+                recovery=("Stop this run. Report the blocking findings with "
+                          "their recovery actions to the user and wait for "
+                          "user instructions; do not re-review in this run."))
+            payload["terminal"] = True
+            _emit_tool_blocked(event_log, scope, name, payload)
+            return payload
 
         candidate_sha = str(args.get("candidate_sha") or scope.candidate_sha or "")
         emit_standard_event(
@@ -2058,7 +2107,17 @@ class ChatbiDeliveryGuardrail(BaseGuardrail):
                 reason = review.get("reason") or (
                     "review verdict is not a clean PASS for the frozen "
                     "candidate")
-                recovery = "Address every blocking finding and re-review"
+                # B2 (design-runbook-completion): a run whose BLOCK ceiling
+                # is exhausted must not keep getting "fix and re-review" —
+                # the recovery hands off to the user (the block itself stays
+                # the ordinary REV-001/003 logic; only the message changes).
+                if _review_block_count(self.event_log, run_id) >= REVIEW_BLOCK_LIMIT:
+                    recovery = (
+                        "Review attempts exhausted (REV-003): hand off to "
+                        "the user with the blocking findings and their "
+                        "recovery actions; do not re-review in this run")
+                else:
+                    recovery = "Address every blocking finding and re-review"
             else:
                 final_candidate = self._final_candidate(run_output)
                 try:

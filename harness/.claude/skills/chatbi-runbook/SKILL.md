@@ -196,12 +196,25 @@ current candidate SHA clears both gates.
    - the recursion round limit is not exceeded.
    Any failure -> `exit 2` with rule IDs, sanitized evidence, and a recovery
    action (REV-002, REV-003, HOOK-001/003/004).
-5. **Handle BLOCKED / ERROR.**
-   - `BLOCKED`: fix every blocking finding, recompute `candidate_sha` (it will
-     change), increment `round`, and re-review. A blocking finding that cannot
-     close stops delivery or escalates - never silently accepted (REV-003).
+5. **Handle BLOCKED / ERROR — 多轮对话式交接 (REV-003, bounded per-run).**
+   - `BLOCKED`: **stop this round.** Do NOT auto-fix and re-review inside the
+     same run. Report to the user: every blocking finding (rule_ids + reason +
+     recovery), the frozen candidate `candidate_sha`, the review `round`, and
+     the evidence reference. Wait for user instructions, then start a NEW run
+     (new per-run review budget) to retry. The run-level review budget allows
+     at most 3 BLOCKED reviews per run (REVIEW_BLOCK_LIMIT); a run that
+     exhausts it is terminally denied at the tool edge — do not keep
+     re-reviewing in that run.
+   - terminal deny (`review attempts exhausted`, tool payload `terminal=true`):
+     end this round. Deliver the blocking findings and their recovery actions
+     to the user; do not call any more tools. The delivery gate marking the
+     run blocked is the expected outcome (REV-003).
    - `ERROR`: the binding, evidence, or sanitization could not be determined.
-     Fail closed; do not assume PASS.
+     Fail closed; do not assume PASS; treat it as BLOCKED.
+   - Note on rounds: the verdict's `round` is counted per candidate by the
+     reviewer; the run-level BLOCK ceiling is counted per run across
+     candidates (candidate-SHA independent). The two are independent; either
+     one hitting its limit fails closed.
 6. **Enforce the stop gate.** The `stop_gate` (`Stop`) requires that any stop
    before delivery carries every unclosed finding and a recovery action;
    otherwise `exit 2`. You cannot stop silently mid-flow.
