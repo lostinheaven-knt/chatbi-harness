@@ -361,7 +361,25 @@ def build_tool_hooks(
                       args: Mapping[str, Any],
                       run_context: Any = None) -> Any:
         if run_context is not None:
-            scope.run_id = getattr(run_context, "run_id", "") or scope.run_id
+            run_id = getattr(run_context, "run_id", "") or ""
+            if run_id and run_id != scope.run_id:
+                # Run boundary (multi-turn isolation, design-runbook C2-1):
+                # RunScope is a single-agent process-shared object reused
+                # across runs/sessions (F9) — per-run state must never leak
+                # into a later run. A previous run's T1 gap could otherwise
+                # satisfy THIS run's T2/T3 tier-gap precondition at the tool
+                # edge (SEM-001 bypass), and the reviewer context would carry
+                # stale evidence refs / review round (REV-003 misdirection).
+                # The review BLOCK ceiling is already event-log derived
+                # (_review_block_count, per run_id) — the remaining scope
+                # fields are reset here at the run boundary (live-verified:
+                # run N's gap leaked into run N+1's T2 acceptance before this
+                # fix; deterministic probe reproduced both directions).
+                scope.evidence_chain.clear()
+                scope.review_round = 1
+                scope.candidate_sha = ""
+                scope.impact = None
+            scope.run_id = run_id or scope.run_id
             scope.session_id = (
                 getattr(run_context, "session_id", "") or scope.session_id
             )
@@ -1640,6 +1658,25 @@ class ChatbiRequestGuardrail(BaseGuardrail):
         if request is None:
             return  # free-text session input (lenient entry)
         if self.run_scope is not None:
+            new_run_id = (
+                getattr(run_context, "run_id", "") if run_context is not None
+                else ""
+            )
+            if new_run_id and new_run_id != self.run_scope.run_id:
+                # Run boundary (multi-turn isolation, design-runbook C2-1):
+                # the RequestGuardrail is the FIRST pre-hook of a new run —
+                # the transition run_id -> new_run_id is visible here, BEFORE
+                # any tool call of the new run (the sanitize_hook fallback
+                # covers free-text inputs that return early above). RunScope
+                # is a process-shared object (F9): stale per-run state from a
+                # previous run (evidence chain, review round, frozen candidate
+                # SHA, impact manifest) must not leak into this run — a prior
+                # run's T1 gap could otherwise satisfy this run's T2/T3
+                # tier-gap precondition (SEM-001) at the tool edge.
+                self.run_scope.evidence_chain.clear()
+                self.run_scope.review_round = 1
+                self.run_scope.candidate_sha = ""
+                self.run_scope.impact = None
             self.run_scope.workflow_id = workflow_id or "chatbi-analyze"
             self.run_scope.request = request
             if run_context is not None:
