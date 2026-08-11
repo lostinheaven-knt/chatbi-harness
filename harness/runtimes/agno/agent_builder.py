@@ -55,7 +55,10 @@ _GOVERNANCE_PROTOCOL = (
     "chatbi_review — the answer is delivered only after the independent "
     "reviewer passes (REV-001).\n"
     "5. When a tool call is DENIED, read the recovery message and follow "
-    "it; if it says ASK the user, ask the user."
+    "it; if it says ASK the user, ask the user.\n"
+    "6. When you need input from the user, END your message with a "
+    "question — the delivery gate treats question-ending messages as "
+    "conversational handoffs, not deliveries."
 )
 
 from pathlib import Path

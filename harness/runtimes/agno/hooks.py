@@ -2076,6 +2076,23 @@ class ChatbiDeliveryGuardrail(BaseGuardrail):
                 "delivery gate requirement not met for this workflow",
                 "Complete the governed flow and re-run")
 
+    @staticmethod
+    def _is_conversational_handoff(text: str) -> bool:
+        """True when the run output is a question/handoff to the user rather
+        than a delivery attempt. Multi-turn model (agno 验收 3.1): the agent
+        asks for a missing time range / segment before any evidence exists —
+        that ending must not C002-block. Heuristic, deliberately narrow:
+        ends with '?' or mentions 'clarif' (case-insensitive). The governance
+        preamble tells the agent to phrase handoffs as questions, so the
+        question-mark signal is the self-consistent contract. Prose data
+        answers (no '?', no 'clarif') stay fail-closed C002-blocks."""
+        if not text:
+            return False
+        stripped = text.strip()
+        if stripped.endswith("?"):
+            return True
+        return "clarif" in stripped.lower()
+
     def _final_candidate(self, run_output: Any) -> Any:
         content = getattr(run_output, "content", None)
         if isinstance(content, str):
@@ -2173,6 +2190,17 @@ class ChatbiDeliveryGuardrail(BaseGuardrail):
         recovery = "Re-run the governed flow with a complete evidence chain"
         if workflow_id == "chatbi-analyze":
             if not tier_chain and review is None:
+                # Real-model integration (agno 验收 3.1): a run that ends
+                # with a conversational handoff (clarification question,
+                # request for input) has no evidence chain BY DESIGN — the
+                # flow has not produced anything to deliver. The delivery
+                # gate binds deliveries only; a question to the user is not
+                # a delivery. Everything else (prose data answers without
+                # the governed chain) still C002-blocks, fail-closed.
+                content = getattr(run_output, "content", None)
+                if self._is_conversational_handoff(
+                        content if isinstance(content, str) else ""):
+                    return
                 rule_ids = ("REV-003", "HOOK-004")
                 reason = ("no evidence chain and no review were recorded; "
                           "the candidate cannot be delivered (C002)")
