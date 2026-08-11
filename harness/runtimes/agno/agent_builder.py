@@ -43,7 +43,7 @@ from .hooks import (
     ChatbiRequestGuardrail,
     build_tool_hooks,
 )
-from .prompt_loader import PromptAssets
+from .prompt_loader import PromptAssets, build_runbook_registry
 
 
 def _routing_table(ir_workflows: Mapping[str, Any]) -> str:
@@ -69,6 +69,15 @@ def _routing_table(ir_workflows: Mapping[str, Any]) -> str:
         "deterministic edges (evidence preconditions, candidate SHA, review, "
         "approval, allowlist, realpath, delivery gate) are enforced by the "
         "tool hooks and guardrails."
+    )
+    # A2 (design-runbook-completion): the runbook-loading instruction follows
+    # the routing table — the table is the selector, chatbi_load_runbook is
+    # the loader (native get_skill_* tools are NOT allowlisted, C011).
+    lines.append(
+        "Runbook loading: before executing a workflow, load its runbook with "
+        "chatbi_load_runbook(<workflow_id>) (once per run). The routing "
+        "table above is the selector; deterministic edges are enforced by "
+        "tool hooks."
     )
     return "\n".join(lines)
 
@@ -120,6 +129,11 @@ def build_governed_agent(
         os.environ.setdefault("OPENAI_BASE_URL", model_config.base_url)
 
     scope = run_scope if run_scope is not None else RunScope()
+    # A1: the runbook registry is derived from the IR prompts[] + the prompt
+    # manifest (single source of truth, A2) once, then shared by the tool
+    # surface and the domain hook (fail-closed: any drift -> PromptLoadError
+    # at startup; None is never passed here).
+    runbook_registry = build_runbook_registry(ir_workflows, prompt_assets)
     tools, spec_by_name = build_governed_tools(
         specs=tool_specs,
         deployment=deployment,
@@ -134,6 +148,7 @@ def build_governed_agent(
         reviewer_runner=reviewer_runner,
         clock=clock,
         run_scope=scope,
+        runbook_registry=runbook_registry,
     )
     tool_hooks = build_tool_hooks(
         specs_by_name=spec_by_name,
@@ -149,6 +164,7 @@ def build_governed_agent(
         native_runner=native_runner,
         deployment=deployment,
         clock=clock,
+        runbook_registry=runbook_registry,
     )
     pre_hooks = normalize_pre_hooks([
         ChatbiRequestGuardrail(config=config, event_log=event_log,

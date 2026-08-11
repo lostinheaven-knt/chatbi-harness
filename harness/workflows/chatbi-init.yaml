@@ -53,7 +53,8 @@ requirements:
   evidence_store: required
 capabilities:
   realpath_sandbox: required
-prompts: []
+prompts:
+  - {name: runbook, path: skills/chatbi-init/SKILL.md, sha256: "2a8dfa5afc8676e84cbd4592eec15c2b1442eaef0f514e0916e00d2832474e6f"}
 tools: {allow: [Read, Grep, Glob, Bash], deny: [Write, Edit]}
 evidence:
   root: ".chatbi"

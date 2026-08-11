@@ -1,7 +1,7 @@
 """Governed tool surface for the single ChatBI agent (skill+hooks module A).
 
 The agent does NOT hold bare Write/Edit/Bash tools: every write-capable or
-governed operation goes through one of the 14 ``chatbi_*`` governance tools
+governed operation goes through one of the 15 ``chatbi_*`` governance tools
 (design §1.2, modification §3 rule R2). Each governance tool is a plain
 Python function + ``@tool``; protected tools additionally carry the
 ``@approval(type='required')`` sentinel (AgentOS native HITL). Per design the
@@ -40,9 +40,11 @@ from chatbi_harness_ir.conditions import (
 )
 from chatbi_harness_ir.schema import ExecutorKind, PROTECTED_ACTIONS
 
-#: The 14 governance tools (design §1.2). ``workflow_ids`` is filled by
-#: :func:`build_tool_specs` from the IR; ``kernel_ref`` is the declarative
-#: kernel dotted path (audit only — the real judgment is in the hooks).
+#: The 15 governance tools (design §1.2 + design-runbook-completion A1:
+#: ``chatbi_load_runbook`` is the 15th, the fail-closed governed runbook
+#: loader). ``workflow_ids`` is filled by :func:`build_tool_specs` from the
+#: IR; ``kernel_ref`` is the declarative kernel dotted path (audit only —
+#: the real judgment is in the hooks).
 _TOOL_NAMES = (
     "chatbi_record_request",
     "chatbi_record_evidence",
@@ -58,6 +60,7 @@ _TOOL_NAMES = (
     "chatbi_drift_report",
     "chatbi_init_diagnostic",
     "chatbi_bootstrap",
+    "chatbi_load_runbook",
 )
 
 #: Step id -> governance tool (base mapping; step ids that collide across
@@ -167,6 +170,10 @@ def build_tool_specs(ir_workflows: Mapping[str, Any]) -> list[ToolSpec]:
         "chatbi_drift_report": "chatbi_governance.drift.detect_drift",
         "chatbi_init_diagnostic": "chatbi_governance.diagnostics.run_init_diagnostic",
         "chatbi_bootstrap": "chatbi_governance.bootstrap.build_mysql_adapter_spec",
+        #: The load-runbook deterministic semantics = the startup-built
+        #: registry (IR prompts[] + manifest, A1) — the tool body is a dumb
+        #: registry lookup; the hook records the runbook-load evidence.
+        "chatbi_load_runbook": "runtimes.agno.prompt_loader.build_runbook_registry",
     }
     #: Tools whose execution may write governed artifacts (registry/correction).
     _WRITE_TOOLS = frozenset({"chatbi_registry_append", "chatbi_correction",
@@ -473,6 +480,54 @@ def _make_bootstrap(scope: RunScope) -> Callable[..., dict]:
     return chatbi_bootstrap
 
 
+#: Unified runtime adaptation note prepended to every chatbi_load_runbook
+#: response (design-runbook-completion A3): the 9 runbook bodies stay the
+#: CC-authored prose (no per-book edits -> no hash churn); this preamble
+#: tells the model how the CC-native vocabulary maps onto THIS runtime's
+#: governance tool surface.
+_RUNTIME_ADAPTATION_PREAMBLE = (
+    "Runtime adaptation: this runbook was authored for the Claude Code "
+    "harness. In this agno runtime, its references to /chatbi-* commands, "
+    "CC hooks and CC subagent gates are carried by the chatbi_* governance "
+    "tools: every governed operation (record evidence, submit candidate, "
+    "review, …) goes through those tools, and the deterministic edges "
+    "(allowlist, evidence preconditions, candidate SHA binding, review "
+    "verdict validation, approval, realpath, delivery gate) are enforced by "
+    "the tool hooks and guardrails. Native skill tools (get_skill_*) are "
+    "NOT allowlisted; load runbooks only via chatbi_load_runbook."
+)
+
+
+def _make_load_runbook(
+    scope: RunScope,
+    registry: Mapping[str, Any],
+) -> Callable[..., dict]:
+    def chatbi_load_runbook(workflow_id: str) -> dict[str, Any]:
+        """Load the governed runbook for a workflow (fail-closed).
+
+        The registry is built at startup from the IR ``prompts[]`` + the
+        prompt manifest (sha256-pinned); an unknown or unregistered
+        workflow_id is denied (double insurance — the domain hook already
+        denies it). The response carries the pinned sha256, the
+        manifest-relative path (PORT-001), the unified runtime adaptation
+        note (A3) and the workflow's route_contract (cross-workflow handoff,
+        F7)."""
+        entry = registry.get(str(workflow_id or ""))
+        if entry is None:
+            return {"tool": "chatbi_load_runbook", "status": "blocked",
+                    "workflow_id": str(workflow_id or ""),
+                    "error": "unknown or unregistered workflow_id"}
+        return {"tool": "chatbi_load_runbook", "status": "loaded",
+                "workflow_id": entry.workflow_id,
+                "runbook_path": entry.path,          # manifest-relative (PORT-001)
+                "sha256": entry.sha256,
+                "runtime_note": _RUNTIME_ADAPTATION_PREAMBLE,
+                "runbook": entry.content,
+                "route_contract": dict(entry.route_contract)}   # IR routes (F7)
+
+    return chatbi_load_runbook
+
+
 def build_governed_tools(
     *,
     specs: list[ToolSpec],
@@ -488,6 +543,7 @@ def build_governed_tools(
     reviewer_runner: Any = None,         # stub 注入 seam（conformance）
     clock: Any = None,
     run_scope: RunScope | None = None,   # shared tools<->hooks run identity
+    runbook_registry: Mapping[str, Any] | None = None,   # A1: IR+manifest 派生
 ) -> tuple[list[Callable[..., dict]], dict[str, ToolSpec]]:
     """Build the agent-visible governance tool functions (dumb pass-throughs).
 
@@ -527,6 +583,8 @@ def build_governed_tools(
         "chatbi_drift_report": _make_drift_report(scope),
         "chatbi_init_diagnostic": _make_init_diagnostic(scope),
         "chatbi_bootstrap": _make_bootstrap(scope),
+        "chatbi_load_runbook": _make_load_runbook(
+            scope, dict(runbook_registry) if runbook_registry else {}),
     }
 
     from . import ensure_agno_unshadowed

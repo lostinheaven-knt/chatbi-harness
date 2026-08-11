@@ -139,6 +139,19 @@ _RULES_STALE_SHA = ("REV-001", "REV-003")
 _RULES_ROUND = ("REV-003", "HOOK-001")
 _RULES_NOT_PASS = ("REV-001", "REV-003", "HOOK-001")
 
+#: agno 2.6.22 native skill tools (F1): bundled by
+#: ``Skills([LocalSkills(skills_root)])``, never allowlisted (C011). The
+#: allowlist-hook deny for these three carries a recovery pointing at the
+#: governed alternative (design-runbook-completion A1 — educate the model
+#: instead of letting the deny destabilize the flow).
+_SKILL_TOOLS = frozenset({
+    "get_skill_instructions", "get_skill_reference", "get_skill_script",
+})
+_SKILL_TOOL_RECOVERY = (
+    "Use chatbi_load_runbook(<workflow_id>) to load the governed runbook "
+    "for the current workflow (native skill tools are not allowlisted, C011)"
+)
+
 #: Tier -> IR when precondition for chatbi_record_evidence.
 _TIER_WHEN = {"T2": 'evidence.has_gap("T1")', "T3": 'evidence.has_gap("T2")'}
 _TIER_SOURCE = {"T1": "semantic-layer", "T2": "curated-reference",
@@ -273,6 +286,7 @@ def build_tool_hooks(
     native_runner: Callable[..., Any] | None = None,
     deployment: Any = None,
     clock: Any = None,
+    runbook_registry: Mapping[str, Any] | None = None,   # A1（IR+manifest 派生）
 ) -> list[Callable[..., Any]]:
     """Build the agent.tool_hooks chain (design §2.1, six layers).
 
@@ -344,6 +358,11 @@ def build_tool_hooks(
                                     evidence_refs=decision.evidence_refs,
                                     reason=decision.reason,
                                     recovery=decision.recovery)
+            # A-1: the three native skill tools keep their deny but their
+            # recovery points at the governed alternative (方案② — the
+            # get_skill_* surface stays blocked, C011).
+            if name in _SKILL_TOOLS:
+                payload["recovery"] = _SKILL_TOOL_RECOVERY
             _emit_tool_blocked(event_log, scope, name, payload)
             return payload
         return func(**args)
@@ -529,6 +548,7 @@ def build_tool_hooks(
         reviewer_runner=reviewer_runner,
         native_runner=native_runner,
         ir_workflows=ir_workflows,
+        runbook_registry=runbook_registry,
     )
 
     # -- layer 6: event envelope (requested / completed) --------------------
@@ -591,6 +611,7 @@ def _build_domain_hook(
     reviewer_runner: Any,
     native_runner: Callable[..., Any] | None,
     ir_workflows: Mapping[str, Any] | None = None,
+    runbook_registry: Mapping[str, Any] | None = None,   # A1（IR+manifest 派生）
 ) -> Callable[..., Any]:
     """Dispatch per governance tool; every judgment goes through the Kernel."""
 
@@ -1410,6 +1431,35 @@ def _build_domain_hook(
                 "table_count": len(inventory.tables)}}
         return out
 
+    # --- chatbi_load_runbook (A1) ------------------------------------------
+    def _load_runbook_handler(name: str, func: Callable[..., Any],
+                              args: Mapping[str, Any]) -> Any:
+        registry = dict(runbook_registry) if runbook_registry else {}
+        workflow_id = str(args.get("workflow_id") or "")
+        entry = registry.get(workflow_id)
+        if entry is None:
+            return _deny_raw(name, rule_ids=("HOOK-004",),
+                             reason=f"unknown or unregistered workflow_id "
+                                    f"{workflow_id!r} (registry: "
+                                    f"{sorted(registry)})",
+                             recovery="Load the runbook for a workflow "
+                                      "listed in the routing table")
+        # Evidence (evidence_source="runbook-load"): recorded but NOT
+        # appended to scope.evidence_chain — it must not pollute the tier
+        # chain or the review context; the delivery gate does not read this
+        # source, so it has no gate side effect.
+        entry_ev = EvidenceEntry.create(
+            source_tier="T2", evidence_source="runbook-load",
+            rule_ids=("HOOK-001", "PORT-001"),
+            payload={"workflow_id": workflow_id,
+                     "runbook_path": entry.path,
+                     "sha256": entry.sha256,
+                     "content_bytes": len(entry.content)},
+            runtime_name="agno", native_run_id=scope.run_id or "",
+            harness_release=harness_release)
+        _record(name, "runbook_load", entry_ev)
+        return func(**args)
+
     _DISPATCH: dict[str, Callable[..., Any]] = {
         "chatbi_record_request": _record_request,
         "chatbi_record_evidence": _record_evidence,
@@ -1425,6 +1475,7 @@ def _build_domain_hook(
         "chatbi_drift_report": _drift_report,
         "chatbi_init_diagnostic": _init_diagnostic,
         "chatbi_bootstrap": _bootstrap,
+        "chatbi_load_runbook": _load_runbook_handler,
     }
 
     def domain_hook(name: str, func: Callable[..., Any],

@@ -28,6 +28,16 @@
       "sha256": "bd14ca3961af4309a2b8c5f4824d12858e94e00f354f9368bfc73bd548482baa",
       "size": 3056
     },
+    "skills/chatbi-init/SKILL.md": {
+      "kind": "skill",
+      "sha256": "2a8dfa5afc8676e84cbd4592eec15c2b1442eaef0f514e0916e00d2832474e6f",
+      "size": 3691
+    },
+    "skills/chatbi-correction/SKILL.md": {
+      "kind": "skill",
+      "sha256": "4d230d1a096610c4323d983b069c697310d56cc232ccfd0dfe9705a6c0214872",
+      "size": 2823
+    },
     "skills/chatbi-maintenance/SKILL.md": {
       "kind": "skill",
       "sha256": "620ea4811369256ee987dc987e3fe6e9a5d120a169d593d7b976d0a72d276113",

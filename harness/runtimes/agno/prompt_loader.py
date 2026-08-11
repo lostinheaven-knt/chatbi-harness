@@ -110,6 +110,25 @@ class PromptEntry:
 
 
 @dataclass(frozen=True)
+class RunbookEntry:
+    """One workflow's runbook registration (design-runbook-completion A1).
+
+    Built at startup from the IR ``prompts[]`` declarations + the manifest
+    (single source of truth, A2): the entry pins the workflow_id -> runbook
+    mapping with the manifest-relative path (PORT-001), the pinned sha256,
+    the loaded content, and the workflow's ``routes`` (the cross-workflow
+    handoff contract the ``chatbi_load_runbook`` tool returns).
+    """
+
+    workflow_id: str
+    prompt_name: str            # IR prompts[].name (e.g. "runbook")
+    path: str                   # manifest-relative (PORT-001)
+    sha256: str
+    content: str
+    route_contract: dict[str, str]      # workflow.routes (F7)
+
+
+@dataclass(frozen=True)
 class PromptAssets:
     """Assembled prompt assets for the ChatBI agent (design §3.1)."""
 
@@ -274,3 +293,81 @@ def load_prompt_assets(
         reviewer_instructions=reviewer_instructions,
         entries=tuple(entries),
     )
+
+
+def build_runbook_registry(
+    ir_workflows: Mapping[str, Any],
+    prompt_assets: PromptAssets,
+) -> dict[str, RunbookEntry]:
+    """Build the 9-workflow runbook registry (design-runbook-completion A1).
+
+    The registry is the fail-closed runtime loading surface for
+    ``chatbi_load_runbook(workflow_id)``:
+
+    - iterate ``ir_workflows``; take each workflow ``prompts[]`` entry whose
+      ``path`` starts with ``skills/`` (kind==skill; ``agents/`` entries like
+      the reviewer are excluded);
+    - the path MUST hit ``prompt_assets.entries`` (manifest registration)
+      with a matching sha256, otherwise :class:`PromptLoadError` — the F5
+      validator semantic (``chatbi_harness_ir.validator._check_prompt_manifest``)
+      is extended to startup-time;
+    - the content is read from ``prompt_assets.skills_root`` and re-hashed
+      (startup disk-drift defense — the manifest pins the hash, the registry
+      re-verifies the on-disk bytes at build time);
+    - a workflow with NO skill entry does not enter the registry
+      (``chatbi_load_runbook`` denies it — fail-closed);
+    - ``route_contract`` carries ``workflow.routes`` (the cross-workflow
+      handoff contract, F7 — e.g. analyze ``on_candidate_missing_model:
+      chatbi-maintain-model``).
+
+    After the runbook-completion iteration (chatbi-init / chatbi-correction
+    added) the registry covers ALL 9 workflows; the test suite asserts
+    ``len(registry) == 9``.
+    """
+    entries_by_name = {entry.name: entry for entry in prompt_assets.entries}
+    registry: dict[str, RunbookEntry] = {}
+    for workflow_id in sorted(ir_workflows):
+        workflow = ir_workflows[workflow_id]
+        prompts = getattr(workflow, "prompts", ()) or ()
+        skill_prompt = None
+        for prompt in prompts:
+            path = str(getattr(prompt, "path", "") or "")
+            if path.startswith("skills/"):
+                skill_prompt = prompt
+                break
+        if skill_prompt is None:
+            continue  # no runbook -> chatbi_load_runbook denies (fail-closed)
+        path = str(getattr(skill_prompt, "path", "") or "")
+        registered = entries_by_name.get(path)
+        if registered is None:
+            raise PromptLoadError(
+                f"workflow {workflow_id!r} prompt {path!r} is not registered "
+                "in the prompt manifest (fail-closed, F5 semantics)")
+        if registered.sha256 != getattr(skill_prompt, "sha256", ""):
+            raise PromptLoadError(
+                f"workflow {workflow_id!r} prompt {path!r} sha256 drift: "
+                f"manifest registers {registered.sha256}, IR declares "
+                f"{getattr(skill_prompt, 'sha256', '')} (fail-closed)")
+        resolved = prompt_assets.skills_root / path.removeprefix("skills/")
+        try:
+            raw = resolved.read_bytes()
+        except OSError as error:
+            raise PromptLoadError(
+                f"runbook file unreadable: {resolved} (workflow "
+                f"{workflow_id!r}, {type(error).__name__})") from error
+        actual_sha = _sha256_bytes(raw)
+        if actual_sha != registered.sha256:
+            raise PromptLoadError(
+                f"runbook content drift (workflow {workflow_id!r}): file "
+                f"{resolved} hashes to {actual_sha}, manifest registers "
+                f"{registered.sha256} (fail-closed)")
+        routes = dict(getattr(workflow, "routes", None) or {})
+        registry[workflow_id] = RunbookEntry(
+            workflow_id=workflow_id,
+            prompt_name=str(getattr(skill_prompt, "name", "") or ""),
+            path=path,
+            sha256=actual_sha,
+            content=raw.decode("utf-8"),
+            route_contract=routes,
+        )
+    return registry
