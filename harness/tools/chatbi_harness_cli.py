@@ -720,7 +720,7 @@ def build_parser() -> argparse.ArgumentParser:
     conformance_parser.add_argument("--target", required=True, choices=TARGET_CHOICES)
     conformance_parser.add_argument(
         "--scenario", action="append", metavar="ID",
-        help="restrict to scenario id (repeatable; default = all 16)",
+        help="restrict to scenario id (repeatable; default = all 26)",
     )
     conformance_parser.set_defaults(handler=cmd_test_conformance)
     return parser

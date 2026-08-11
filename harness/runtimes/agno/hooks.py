@@ -408,9 +408,21 @@ def build_tool_hooks(
         if spec is None or spec.approval != "required":
             return func(**args)
         requester = run_subject.get()
+        if not requester:
+            # MED-3 (eval round 1): the requester subject must come from the
+            # run context (SEC-003). An empty subject is fail-closed — never
+            # a fabricated literal ("operator") in the audit chain.
+            payload = _deny_payload(
+                name, rule_ids=("SEC-003",),
+                reason="approval requester subject is missing; the run has "
+                       "no authenticated user (fail-closed, SEC-003)",
+                recovery="Authenticate the run user and re-request the "
+                         "protected action")
+            _emit_tool_blocked(event_log, scope, name, payload)
+            return payload
         action_type = _approval_action_type(name)
         candidate_sha = scope.candidate_sha or compute_candidate_sha(
-            {"action": action_type, "actor": requester or "operator"})
+            {"action": action_type, "actor": requester})
         context = ApprovalContext(
             workflow_id=scope.workflow_id or "chatbi-maintain-model",
             run_id=scope.run_id or "run",
@@ -422,7 +434,7 @@ def build_tool_hooks(
                 coordinator=approvals,
                 context=context,
                 action_type=action_type,
-                requester_subject=requester or "operator",
+                requester_subject=requester,
                 candidate_sha=candidate_sha,
                 evidence_refs=tuple(
                     e.get("evidence_source", "")
@@ -1180,6 +1192,16 @@ def _build_domain_hook(
             validate_correction(record)
         except GateError as error:
             return _deny(name, error.decision)
+        entry = EvidenceEntry.create(
+            source_tier="T2", evidence_source="correction-record",
+            rule_ids=("FBK-001", "FBK-002", "FBK-003", "ABL-001"),
+            payload={"correction_id": str(request.get("correction_id", "")),
+                     "validated": True,
+                     "owner_approved": False},
+            runtime_name="agno", native_run_id=scope.run_id or "",
+            harness_release=harness_release,
+        )
+        _record(name, "correction", entry)
         result = func(**args)
         if isinstance(result, Mapping):
             return {**dict(result), "correction_validated": True}
@@ -1759,6 +1781,22 @@ class ChatbiDeliveryGuardrail(BaseGuardrail):
                     rules.append(rule)
         return tuple(rules)
 
+    def _approval_resolved(self, run_id: str) -> bool:
+        """True when the run's event log carries an approval.resolved event
+        with resolution="approved" (the AgentOS HITL confirmation passed
+        Kernel re-verification in the approval_verify_hook)."""
+        try:
+            events = self.event_log.replay(run_id).events
+        except Exception:  # noqa: BLE001 - no log -> not resolved
+            return False
+        for event in events:
+            if event.get("event_type") != "approval.resolved":
+                continue
+            payload = event.get("payload") or {}
+            if payload.get("resolution") == "approved":
+                return True
+        return False
+
     def _check_generic(self, run_id: str, session_id: str,
                        workflow_id: str) -> tuple[tuple[str, ...], str, str]:
         """Non-analyze delivery verdict (E-series semantics, mirroring the
@@ -1830,8 +1868,29 @@ class ChatbiDeliveryGuardrail(BaseGuardrail):
                         "Resolve the lint issues via the governed reference "
                         "authoring flow")
             return (), "", ""
-        # maintain-model / correction: a protected-action run must have been
-        # paused for approval; reaching the terminal gate unresolved blocks.
+        # maintain-model / correction (M-2, eval round 1): the protected
+        # action pauses at the AgentOS HITL boundary; once the human-owner
+        # approval is RESOLVED (approval.resolved=approved after Kernel
+        # re-verification) and the governed record exists, the workflow has a
+        # completion path — never a dead-end block.
+        if workflow_id == "chatbi-maintain-model":
+            if self._approval_resolved(run_id) and sources.get(
+                "model-registry"
+            ):
+                return (), "", ""
+            return (ir_rules,
+                    "protected-action approval not resolved or the model "
+                    "registry record is missing (DOC-004/SEM-003)",
+                    "Resolve the human-owner approval and re-run")
+        if workflow_id == "chatbi-correction":
+            if self._approval_resolved(run_id) and sources.get(
+                "correction-record"
+            ):
+                return (), "", ""
+            return (ir_rules,
+                    "protected-action approval not resolved or the "
+                    "correction record is missing (FBK-002/SEM-003)",
+                    "Resolve the human-owner approval and re-run")
         if not sources:
             return (ir_rules,
                     "no governed evidence was recorded for the run",

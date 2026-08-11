@@ -200,6 +200,18 @@ def load_prompt_assets(
                 f"prompt manifest entry {name!r}: absolute or traversing "
                 "paths are rejected (PORT-001)")
         resolved = root / ".claude" / path
+        # Defensive symlink containment (LOW-6, eval round 1): the resolved
+        # file must stay inside the workspace's .claude tree — a symlink
+        # pointing outside is rejected.
+        try:
+            contained = resolved.resolve().is_relative_to(
+                (root / ".claude").resolve())
+        except (OSError, ValueError):
+            contained = False
+        if not contained:
+            raise PromptLoadError(
+                f"prompt asset {resolved} escapes the workspace .claude "
+                "tree (symlink containment, PORT-001)")
         if not resolved.is_file():
             raise PromptLoadError(
                 f"prompt asset file missing: {resolved} (entry {name!r})")

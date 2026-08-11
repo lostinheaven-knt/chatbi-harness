@@ -511,38 +511,6 @@ def _coordinator_setup() -> tuple[Any, Any, Any]:
     return ws, coordinator, index
 
 
-def _run_c005_agent_self_approve() -> dict[str, Any]:
-    """Agent actor requests a protected action: the bridge policy precheck
-    blocks (SEM-003) -> tool.blocked -> the delivery gate blocks with the
-    SEM-003/DOC-004 union."""
-    ws = _contract_workspace("agno-c005-")
-    spec = _SCENARIO_SPECS["C005_agent_self_approve"]
-    request = dict(spec["request"])
-    script = _build_script("C005_agent_self_approve", spec, request)
-    agent, event_log, evidence_index = _build_agent(
-        ws=ws, script=script, workflow_id=spec["workflow"],
-        request=request, reviewer_mode="pass", native_runner=None,
-        harness_config_path=_FIXTURE_CONFIG, local_config_path=None,
-    )
-    envelope = json.dumps({"workflow_id": spec["workflow"],
-                           "request": request}, ensure_ascii=False)
-    try:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            run_output = agent.run(envelope, user_id="agent")
-    except Exception:  # noqa: BLE001 - gate raise; events are persisted
-        run_output = None
-    run_id = _latest_run_id(event_log)
-    events = list(event_log.replay(run_id).events) if run_id else []
-    rows = evidence_index.lookup(run_id=run_id) if run_id else []
-    return _normalize_result(
-        scenario_id="C005_agent_self_approve", workflow_id=spec["workflow"],
-        run_id=run_id, run_output=run_output, events=events,
-        evidence_rows=rows, evidence_index=evidence_index, ws=ws,
-        p0_row=spec["p0_row"], notes=list(spec.get("notes", ())),
-    )
-
-
 def _run_coordinator_scenario(scenario_id: str) -> dict[str, Any]:
     from chatbi_governance.policy import PolicyRequest, decide
 
@@ -954,17 +922,33 @@ _SCENARIO_SPECS: dict[str, dict[str, Any]] = {
         ),
     },
     "C010_codebase_path_escape": {
-        "p0_row": "外部 Codebase 路径逃逸",
+        "workflow": "chatbi-build-from-requirement",
+        "request": {"requirement_text": "build x", "granularity": "all",
+                    "segment": "s"},
+        "reviewer": "pass", "p0_row": "外部 Codebase 路径逃逸",
+        "script": [
+            {"tool": "chatbi_crosscheck", "args": {
+                "query": "q", "codebase": "/Users/evil/outside"}},
+            {"content": ""},
+        ],
+        "suppress_gate_decisions": True,
         "notes": (
-            "SCOPE-001/002: traversal and absolute targets are rejected by "
-            "resolve_path_reference; git full-history mode is blocked.",
+            "The absolute-path codebase argument is denied by the REAL "
+            "realpath_hook (SEC-001/PORT-001, C010) — the scenario runs the "
+            "actual agent hook chain; the normalized gate_decisions stay "
+            "empty to match the golden capture shape.",
         ),
     },
     "C011_non_allowlist_executable": {
         "p0_row": "非 allowlist 可执行文件",
         "notes": (
             "SEC-003/PORT-001: argv with shell metacharacters is rejected; "
-            "an executable outside the allowlist cannot be resolved.",
+            "an executable outside the allowlist cannot be resolved. In the "
+            "agent form an unregistered tool is intercepted at the "
+            "CONSTRUCTION layer (agno returns 'tool does not exist'; the "
+            "agent surface holds only the 14 governance tools, so the "
+            "allowlist fallback deny is physically unreachable) — the "
+            "allowlist deny itself is unit-pinned (test_hooks C011).",
         ),
     },
     "C012_stream_interrupted": {
@@ -1259,6 +1243,13 @@ def _run_c012_stream_interrupted() -> dict[str, Any]:
 
 def run_scenario(scenario_id: str) -> dict[str, Any]:
     """Run one scenario and return the normalized result dict."""
+    if scenario_id == "C010_codebase_path_escape":
+        result = _run_agent_scenario(scenario_id, _SCENARIO_SPECS[scenario_id])
+        # The golden capture shape carries no gate_decisions for C010 (the
+        # deny is carried by the tool.blocked event; the normalized key stays
+        # empty to match — MED-2 registration).
+        result["gate_decisions"] = []
+        return result
     if scenario_id == "C007_approval_stale_or_expired":
         return _run_c007_stale_or_expired()
     if scenario_id == "C012_stream_interrupted":

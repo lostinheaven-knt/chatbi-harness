@@ -48,13 +48,18 @@ _READ_ONLY_FILE_TOOLS = {
 def build_reviewer_agent(
     deployment: Any,
     model_config: Any,
+    instructions: str | None = None,
 ) -> Any:
     """Build the independent reviewer Agent (agno 2.6.22).
 
     ``deployment`` is the resolved runtimes.agno.config.DeploymentConfig and
-    ``model_config`` the resolved ModelConfig. Returns an ``agno.agent.Agent``
-    configured with read-only tools, an explicit distinct id, and no shared
-    memory wiring.
+    ``model_config`` the resolved ModelConfig. ``instructions`` carries the
+    adversarial-reviewer protocol body (``prompts/manifest.json`` entry
+    ``agents/adversarial-reviewer.md``, sha256-pinned by the prompt loader —
+    skill+hooks module C; closes the live-integration boundary registered in
+    test-report-agno-live-v1.md §6). Returns an ``agno.agent.Agent``
+    configured with read-only tools, the reviewer protocol instructions, an
+    explicit distinct id, and no shared memory wiring.
     """
     from . import ensure_agno_unshadowed
 
@@ -91,6 +96,7 @@ def build_reviewer_agent(
             "Independent least-privilege reviewer: read-only tools, "
             "adversarial review of a frozen candidate bound to a SHA-256."
         ),
+        instructions=instructions,
         model=OpenAIResponses(
             id=model_config.model,
             base_url=model_config.base_url or None,

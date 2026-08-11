@@ -104,7 +104,6 @@ def create_chatbi_app(
     agent_runner: Callable[..., Any] | None = None,     # deprecated seam (M7)
     reviewer_runner: Any = None,                        # stub seam（conformance）
     native_runner: Callable[..., Any] | None = None,    # runtime_native seam
-    model_refs: Mapping[str, Any] | None = None,        # 裁决 7：model 注入
     harness_config_path: str | Path | None = None,
     local_config_path: str | Path | None = None,
     skills_root: str | Path | None = None,              # prompt 资产根（缺省 resolve）
@@ -122,6 +121,9 @@ def create_chatbi_app(
     with the module-5 factory but are UNUSED in the agent form (the run
     subject comes from the AgentOS run context via the PolicyGuardrail; the
     agent's behavior is driven by the model, scripted in conformance).
+    Model resolution (adjudication 7) is carried by the deployment config
+    (``config.py`` ``model_refs`` section / env) — the historical
+    ``model_refs`` parameter was removed (LOW-3, eval round 1).
     """
     from . import ensure_agno_unshadowed
 
@@ -176,7 +178,10 @@ def create_chatbi_app(
 
     reviewer_agent = None
     if model_config is not None:
-        reviewer_agent = build_reviewer_agent(deployment, model_config)
+        reviewer_agent = build_reviewer_agent(
+            deployment, model_config,
+            instructions=prompt_assets.reviewer_instructions,
+        )
 
     from .agent_builder import build_governed_agent  # noqa: PLC0415
 
