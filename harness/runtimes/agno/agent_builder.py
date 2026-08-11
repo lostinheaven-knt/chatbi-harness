@@ -33,6 +33,31 @@ SEM-003, invariant 2/5.
 
 from __future__ import annotations
 
+#: High-salience protocol preamble, prepended to the agent's instructions.
+#: Real-model integration (agno 验收 3.1): the model read the full runbook
+#: body (~5-6K tokens) and still answered a data question WITHOUT calling any
+#: governance tool, so the delivery gate C002-blocked the output. The long
+#: prose buried the ordering requirement; this short preamble makes the
+#: mandatory flow and the ask-the-user rule impossible to miss. Adapter-side
+#: only — the shared runbook/manifest assets are untouched.
+_GOVERNANCE_PROTOCOL = (
+    "GOVERNANCE PROTOCOL (mandatory for every data-analysis question):\n"
+    "1. You MUST begin by calling chatbi_record_request — never produce a "
+    "data answer without the governed flow. The request needs exactly 7 "
+    "fields: question, time_range (format YYYY-MM-DD_to_YYYY-MM-DD), "
+    "entity, segment, actor, purpose, supported_decision.\n"
+    "2. If the user's question lacks any required field (e.g. no time "
+    "range), ASK the user for the missing value first (REQ-001 clarify) — "
+    "never guess, never send an empty value.\n"
+    "3. Then record evidence via chatbi_record_evidence (T1 semantic layer "
+    "first; T2/T3 only after a recorded T1 gap).\n"
+    "4. Freeze the final answer with chatbi_submit_candidate, then call "
+    "chatbi_review — the answer is delivered only after the independent "
+    "reviewer passes (REV-001).\n"
+    "5. When a tool call is DENIED, read the recovery message and follow "
+    "it; if it says ASK the user, ask the user."
+)
+
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
@@ -180,6 +205,7 @@ def build_governed_agent(
             ir_workflows=ir_workflows),
     ])
     instructions = [
+        _GOVERNANCE_PROTOCOL,
         *prompt_assets.instructions,
         _routing_table(ir_workflows),
     ]
