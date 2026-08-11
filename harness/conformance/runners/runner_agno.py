@@ -276,9 +276,14 @@ def _normalize_result(
     ws: Path,
     p0_row: str,
     notes: list[str],
-    decision_override: dict | None = None,
+    suppress_gate_decisions: bool = False,
 ) -> dict[str, Any]:
-    """Normalize one agent-run scenario into the golden-compatible keys."""
+    """Normalize one agent-run scenario into the golden-compatible keys.
+
+    ``suppress_gate_decisions`` (spec-driven, N-1 eval round 2): scenarios
+    whose golden capture shape carries no gate_decisions (C010 — the deny is
+    carried by the tool.blocked event) keep the key empty.
+    """
     from chatbi_governance.evidence import compute_candidate_sha
 
     event_types = [e["event_type"] for e in events]
@@ -352,7 +357,8 @@ def _normalize_result(
         final_status = "blocked"
 
     gate_decisions: list[dict] = []
-    if final_status != "stopped" and gate_blocked:
+    if (not suppress_gate_decisions and final_status != "stopped"
+            and gate_blocked):
         decision = (gate_blocked[-1].get("payload") or {}).get("decision")
         gate_decisions.append({"gate": "delivery_gate", "decision": decision})
 
@@ -438,6 +444,8 @@ def _run_agent_scenario(scenario_id: str, spec: Mapping[str, Any]) -> dict[str, 
             run_id=run_id, run_output=run_output, events=events,
             evidence_rows=rows, evidence_index=evidence_index, ws=ws,
             p0_row=spec["p0_row"], notes=list(spec.get("notes", ())),
+            suppress_gate_decisions=bool(
+                spec.get("suppress_gate_decisions", False)),
         )
     run_id = getattr(run_output, "run_id", "") or _latest_run_id(event_log)
     events = list(event_log.replay(run_id).events) if run_id else []
@@ -447,6 +455,8 @@ def _run_agent_scenario(scenario_id: str, spec: Mapping[str, Any]) -> dict[str, 
         run_id=run_id, run_output=run_output, events=events,
         evidence_rows=rows, evidence_index=evidence_index, ws=ws,
         p0_row=spec["p0_row"], notes=list(spec.get("notes", ())),
+        suppress_gate_decisions=bool(
+            spec.get("suppress_gate_decisions", False)),
     )
 
 
@@ -1243,13 +1253,6 @@ def _run_c012_stream_interrupted() -> dict[str, Any]:
 
 def run_scenario(scenario_id: str) -> dict[str, Any]:
     """Run one scenario and return the normalized result dict."""
-    if scenario_id == "C010_codebase_path_escape":
-        result = _run_agent_scenario(scenario_id, _SCENARIO_SPECS[scenario_id])
-        # The golden capture shape carries no gate_decisions for C010 (the
-        # deny is carried by the tool.blocked event; the normalized key stays
-        # empty to match — MED-2 registration).
-        result["gate_decisions"] = []
-        return result
     if scenario_id == "C007_approval_stale_or_expired":
         return _run_c007_stale_or_expired()
     if scenario_id == "C012_stream_interrupted":
