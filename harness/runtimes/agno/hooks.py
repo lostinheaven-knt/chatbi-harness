@@ -1908,6 +1908,18 @@ class ChatbiDeliveryGuardrail(BaseGuardrail):
                     return parsed
             except (json.JSONDecodeError, ValueError):
                 pass
+            # Real-model integration (live, 2026-08-11): DeepSeek wraps the
+            # exact candidate JSON in a prose preamble even when the delivery
+            # contract instructs JSON-only output. Extract the outermost
+            # well-formed JSON object (string/escape-aware, same helper as the
+            # reviewer path) so the REV-001 SHA binding compares the candidate
+            # the model actually delivered. No well-formed object -> the raw
+            # content is hashed and the gate blocks (fail-closed, REV-001).
+            from .reviewer import extract_json_object
+
+            extracted = extract_json_object(content)
+            if isinstance(extracted, Mapping):
+                return extracted
         return content
 
     def _assemble_footer(self, run_id: str, workflow_id: str,

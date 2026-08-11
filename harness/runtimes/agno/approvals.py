@@ -271,23 +271,26 @@ class ChatBIApprovalCoordinator:
 
     def _emit(self, event_type: str, *, context: ApprovalContext,
               approval: ApprovalRecord, payload: Mapping[str, Any]) -> None:
-        index = self.event_log.next_index(context.run_id)
-        envelope = {
-            "schema_version": "chatbi.event/v1",
-            "event_id": f"evt_{context.run_id}_{index}",
-            "event_index": index,
-            "trace_id": f"tr_{context.run_id}",
-            "session_id": context.session_id,
-            "run_id": context.run_id,
-            "workflow_id": context.workflow_id,
-            "step_id": context.step_id,
-            "event_type": event_type,
-            "occurred_at": _iso_timestamp(),
-            "runtime": {"name": "agno", "native_run_id": context.run_id},
-            "payload": dict(payload),
-            "evidence_refs": list(approval.evidence_refs),
-        }
-        self.event_log.append(envelope)
+        # writer_lock: allocate+append must be atomic — the agent loop can
+        # run parallel tool calls concurrently (live finding 2026-08-11).
+        with self.event_log.writer_lock():
+            index = self.event_log.next_index(context.run_id)
+            envelope = {
+                "schema_version": "chatbi.event/v1",
+                "event_id": f"evt_{context.run_id}_{index}",
+                "event_index": index,
+                "trace_id": f"tr_{context.run_id}",
+                "session_id": context.session_id,
+                "run_id": context.run_id,
+                "workflow_id": context.workflow_id,
+                "step_id": context.step_id,
+                "event_type": event_type,
+                "occurred_at": _iso_timestamp(),
+                "runtime": {"name": "agno", "native_run_id": context.run_id},
+                "payload": dict(payload),
+                "evidence_refs": list(approval.evidence_refs),
+            }
+            self.event_log.append(envelope)
 
     # ------------------------------------------------------------------
     # Request

@@ -240,6 +240,19 @@ Assemble all 16 required fields per `provenance.schema.json` and validate via
 - Executive, regulated, PII, or core-finance use -> **human sign-off required**;
   the Agent cannot sign off on its own (SEM-003, ANS-003).
 
+### 7.1 Final delivery contract (REV-001)
+
+The delivered artifact IS the frozen candidate. Whatever the runtime's
+delivery channel (the agent's final message, a written answer file), the
+delivered content must be EXACTLY the JSON candidate that was submitted via
+`chatbi_submit_candidate` and independently reviewed — identical after
+canonical JSON encoding (sort_keys) — or the review PASS is void (REV-001:
+any change invalidates the PASS and forces a new review round). For runtimes
+whose delivery channel is the agent's final message, the final message must
+be that candidate JSON object ALONE: no prose, no markdown, no code fences,
+no added, reordered, or reformatted fields. A natural-language summary is
+never the delivery.
+
 ## 8. Sanitization (SEC-003, PORT-001)
 
 Every evidence entry, candidate payload, and footer is sanitized by

@@ -35,10 +35,12 @@ Applicable rules: HOOK-001, ADR-002, MR-006, invariant 5 (sanitized payloads).
 from __future__ import annotations
 
 import json
+import threading
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any, Iterable, Iterator, Mapping
 
 from chatbi_governance.gates import _sanitize_text
 from chatbi_runtime_contract.events import (
@@ -239,6 +241,23 @@ class EventLog:
         self.state_dir = Path(state_dir)
         self._events_dir = self.state_dir / "events"
         self._events_dir.mkdir(parents=True, exist_ok=True)
+        #: Serializes allocate-index + append across CONCURRENT tool calls
+        #: (live finding 2026-08-11: the AgentOS agent loop executes parallel
+        #: tool calls in one model turn; without the lock two threads can read
+        #: the same next_index and emit colliding event_id/event_index, which
+        #: breaks the monotonic-cursor + dedup contract, design §6.3).
+        self._lock = threading.RLock()
+
+    @contextmanager
+    def writer_lock(self) -> Iterator[None]:
+        """Hold the allocation+append critical section across callers.
+
+        ``emit_standard_event`` / ``approvals._emit`` wrap their
+        ``next_index()`` -> envelope -> ``append()`` sequence with this lock
+        so event_index/event_id stay unique and monotonic under parallel
+        tool hooks (reentrant: ``append``/``next_index`` take the same lock)."""
+        with self._lock:
+            yield
 
     def _run_path(self, run_id: str) -> Path:
         if (
@@ -250,24 +269,27 @@ class EventLog:
 
     def append(self, event: Mapping[str, Any]) -> None:
         """Persist one envelope (must already carry event_id/event_index)."""
-        violations = validate_envelope(event)
-        if violations:
-            raise ValueError(f"refusing to persist an invalid event: {violations}")
-        run_id = event["run_id"]
-        line = (
-            json.dumps(dict(event), ensure_ascii=False, sort_keys=True)
-            + "\n"
-        ).encode("utf-8")
-        path = self._run_path(run_id)
-        with open(path, "ab") as handle:  # noqa: PTH123
-            handle.write(line)
-            handle.flush()
-            try:
-                import os
+        with self._lock:
+            violations = validate_envelope(event)
+            if violations:
+                raise ValueError(
+                    f"refusing to persist an invalid event: {violations}"
+                )
+            run_id = event["run_id"]
+            line = (
+                json.dumps(dict(event), ensure_ascii=False, sort_keys=True)
+                + "\n"
+            ).encode("utf-8")
+            path = self._run_path(run_id)
+            with open(path, "ab") as handle:  # noqa: PTH123
+                handle.write(line)
+                handle.flush()
+                try:
+                    import os
 
-                os.fsync(handle.fileno())
-            except OSError:
-                pass
+                    os.fsync(handle.fileno())
+                except OSError:
+                    pass
 
     def replay(self, run_id: str, cursor: int | None = None) -> ReplayResult:
         """Replay persisted events strictly after ``cursor`` (default all).
@@ -295,10 +317,11 @@ class EventLog:
 
     def next_index(self, run_id: str) -> int:
         """Next monotonic event_index for a run (0 when empty)."""
-        result = self.replay(run_id)
-        if result.events:
-            return result.events[-1]["event_index"] + 1
-        return 0
+        with self._lock:
+            result = self.replay(run_id)
+            if result.events:
+                return result.events[-1]["event_index"] + 1
+            return 0
 
 
 def emit_standard_event(
@@ -327,29 +350,32 @@ def emit_standard_event(
     themselves (agno native events are diagnostic-only); ``step.*`` events
     are never emitted (no step state machine — M7 semantic difference).
     """
-    index = event_log.next_index(run_id)
-    envelope = {
-        "schema_version": EVENT_SCHEMA_VERSION,
-        "event_id": f"evt_{run_id}_{index}",
-        "event_index": index,
-        "trace_id": trace_id or f"tr_{run_id}",
-        "session_id": session_id,
-        "run_id": run_id,
-        "workflow_id": workflow_id,
-        "step_id": step_id,
-        "event_type": event_type,
-        "occurred_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
-        "runtime": {"name": runtime_name, "native_run_id": run_id},
-        "payload": dict(payload),
-        "evidence_refs": list(evidence_refs),
-    }
-    violations = validate_envelope(envelope)
-    if violations:
-        raise ValueError(
-            f"refusing to emit an invalid standard event: {violations}"
-        )
-    event_log.append(envelope)
-    return envelope
+    with event_log.writer_lock():
+        index = event_log.next_index(run_id)
+        envelope = {
+            "schema_version": EVENT_SCHEMA_VERSION,
+            "event_id": f"evt_{run_id}_{index}",
+            "event_index": index,
+            "trace_id": trace_id or f"tr_{run_id}",
+            "session_id": session_id,
+            "run_id": run_id,
+            "workflow_id": workflow_id,
+            "step_id": step_id,
+            "event_type": event_type,
+            "occurred_at": datetime.now(timezone.utc).strftime(
+                "%Y-%m-%dT%H:%M:%S.%fZ"
+            ),
+            "runtime": {"name": runtime_name, "native_run_id": run_id},
+            "payload": dict(payload),
+            "evidence_refs": list(evidence_refs),
+        }
+        violations = validate_envelope(envelope)
+        if violations:
+            raise ValueError(
+                f"refusing to emit an invalid standard event: {violations}"
+            )
+        event_log.append(envelope)
+        return envelope
 
 
 def iter_standard_events(
