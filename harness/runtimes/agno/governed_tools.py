@@ -355,7 +355,23 @@ def _echo(tool: str, **fields: Any) -> dict[str, Any]:
 def _make_record_request(scope: RunScope) -> Callable[..., dict]:
     def chatbi_record_request(request: dict) -> dict[str, Any]:
         """Record the analysis request; the request-preflight hook validates
-        it against request.schema.json (missing fields -> deny + clarify)."""
+        it against request.schema.json and DENIES the call on any missing or
+        malformed field (fail-closed).
+
+        The request dict REQUIRES exactly these 7 fields:
+          question: str            - the business question
+          time_range: str          - analysis window, format
+                                     "YYYY-MM-DD_to_YYYY-MM-DD"
+                                     (e.g. "2024-01-01_to_2024-01-31")
+          entity: str              - the entity analyzed (canonical name)
+          segment: str             - the user/entity segment
+          actor: str               - who is asking (e.g. "operator")
+          purpose: str             - decision purpose (e.g. "decision_support")
+          supported_decision: str  - the decision this analysis supports
+        All 7 fields are REQUIRED with no empty values. If the user's
+        question does not provide a field (e.g. no time range), DO NOT guess
+        or send an empty value: first ask the user for the missing
+        information (REQ-001 clarify), then record once you have it."""
         return _echo("chatbi_record_request", request=dict(request or {}))
 
     return chatbi_record_request

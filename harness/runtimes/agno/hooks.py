@@ -139,6 +139,46 @@ _RULES_STALE_SHA = ("REV-001", "REV-003")
 _RULES_ROUND = ("REV-003", "HOOK-001")
 _RULES_NOT_PASS = ("REV-001", "REV-003", "HOOK-001")
 
+
+def _clarify_request_decision(decision: GateDecision) -> GateDecision:
+    """Translate a request-schema GateDecision into a clarify-oriented denial.
+
+    Real-model integration (agno 验收 3.1): the model fills the request
+    contract from the tool description and the denial recovery. The generic
+    schema recovery ("Correct the payload...") gives no signal to ASK the
+    user for a missing field, so the agent guesses an empty time_range and
+    the delivery gate later blocks with C002. Map missing/empty fields to an
+    explicit ask-the-user recovery (REQ-001 clarify) without weakening the
+    fail-closed decision (rule_ids/status unchanged).
+    """
+    reason = decision.reason or ""
+    recovery = decision.recovery or ""
+    if "missing required field" in reason and "'" in reason:
+        field = reason.split("'")[1]
+        recovery = (
+            f"Required request field '{field}' is missing. If the user's "
+            f"question does not provide '{field}', ASK the user for it "
+            f"before proceeding (REQ-001 clarify); never guess or send an "
+            f"empty value."
+        )
+    elif "time_range" in reason:
+        recovery = (
+            "time_range is required, format 'YYYY-MM-DD_to_YYYY-MM-DD' "
+            "(e.g. '2024-01-01_to_2024-01-31'). If the user did not specify "
+            "an analysis window, ASK the user for it (REQ-001 clarify); "
+            "never guess or send an empty value."
+        )
+    if recovery == (decision.recovery or ""):
+        return decision
+    return GateDecision(
+        status=decision.status,
+        rule_ids=decision.rule_ids,
+        evidence_refs=decision.evidence_refs,
+        reason=reason,
+        recovery=recovery,
+    )
+
+
 #: agno 2.6.22 native skill tools (F1): bundled by
 #: ``Skills([LocalSkills(skills_root)])``, never allowlisted (C011). The
 #: allowlist-hook deny for these three carries a recovery pointing at the
@@ -697,7 +737,7 @@ def _build_domain_hook(
         try:
             validate_request(payload_request)
         except GateError as error:
-            return _deny(name, error.decision)  # recovery = 最小澄清问题
+            return _deny(name, _clarify_request_decision(error.decision))
         entry = EvidenceEntry.create(
             source_tier="T2", evidence_source="request",
             rule_ids=("REQ-001", "HOOK-001"), payload=payload_request,
