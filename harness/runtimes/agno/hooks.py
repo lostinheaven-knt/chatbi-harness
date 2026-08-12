@@ -207,6 +207,10 @@ REVIEW_BLOCK_LIMIT = 3
 #: dbt-run evidence log tail cap (2 KiB, design §6.2 step 5).
 _LOG_TAIL_CAP = 2048
 
+#: Semantic doc content cap returned to the model (16 KiB per doc; the
+#: evidence payload carries metadata only, design §7.1 step 3).
+_SEMANTIC_DOC_CAP = 16 * 1024
+
 
 def _reviewed_candidate_shas(event_log: Any, run_id: str) -> frozenset[str]:
     """candidate_sha values of ``review.completed``(PASS) events in the run.
@@ -383,6 +387,35 @@ def query_table_allowlist(
     (design §5.2). See :func:`_load_query_allowlists`."""
     models, public, _source_db = _load_query_allowlists(workspace_root)
     return models, public
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 (module D, technical-design-agno-phase2 §7): semantic discovery
+# ---------------------------------------------------------------------------
+
+
+def _fixture_catalog_path() -> Path | None:
+    """Runtime-relative semantic fixture catalog (PORT-001: no machine path).
+
+    Resolved relative to THIS package (``harness/.claude/fixtures/
+    semantic-catalog.json`` in the dev tree; the same relative layout in the
+    built product). None = unresolvable (fail-closed when fixture mode is
+    active)."""
+    candidate = Path(__file__).resolve().parents[2] / ".claude" / "fixtures" \
+        / "semantic-catalog.json"
+    return candidate if candidate.is_file() else None
+
+
+def _semantic_metric_of(doc_path: Path) -> str | None:
+    """The first ``# Metric: <name>`` line of a semantic doc, or None."""
+    try:
+        for line in doc_path.read_text(encoding="utf-8").splitlines()[:20]:
+            stripped = line.strip()
+            if stripped.lower().startswith("# metric:"):
+                return stripped[len("# metric:"):].strip()
+    except (OSError, UnicodeDecodeError):
+        return None
+    return None
 
 
 @dataclass(frozen=True)
@@ -1645,6 +1678,31 @@ def _build_domain_hook(
                 path_bindings=request.get("path_bindings"),
                 cli_adapters=request.get("cli_adapters"),
             )
+            # Phase 2 (module F, technical-design-agno-phase2 §4.1 "bootstrap
+            # 写正式 argv"): persist the merged local config with the formal
+            # mysql adapter spec (argv + credential env NAMES only, no
+            # values — SEC-003) into the deployment-boundary local config.
+            # query_source reads it fresh, so a long-running server sees the
+            # adapter without restart.
+            cli_adapters_merged = merged.get("cli_adapters") or {}
+            cli_adapters_merged["mysql"] = dict(spec)
+            merged["cli_adapters"] = cli_adapters_merged
+            local_target = workspace_root / ".claude" \
+                / "chatbi-harness.local.json"
+            try:
+                local_target.parent.mkdir(parents=True, exist_ok=True)
+                tmp_local = local_target.with_name(local_target.name + ".tmp")
+                tmp_local.write_text(json.dumps(
+                    merged, ensure_ascii=False, sort_keys=True),
+                    encoding="utf-8")
+                os.replace(tmp_local, local_target)
+            except OSError as error:
+                return _deny_raw(
+                    name, rule_ids=("HOOK-004",),
+                    reason=f"local config persist failed: "
+                           f"{type(error).__name__} (fail-closed)",
+                    recovery="Check the .claude directory permissions and "
+                             "re-run the bootstrap chain")
             # Phase 2 (Q4, technical-design-agno-phase2 §3.3): the
             # executable allowlist comes from the DEPLOYMENT config
             # (deployment authority — the request body no longer carries
@@ -2074,6 +2132,143 @@ def _build_domain_hook(
                                          "log_tail": log_tail}}
         return out
 
+    # --- chatbi_semantic_discover (Phase 2, module D) ----------------------
+    def _semantic_discover(name: str, func: Callable[..., Any],
+                           args: Mapping[str, Any]) -> Any:
+        import hashlib
+
+        metric = args.get("metric")
+        if metric is None:
+            metric = ""
+        metric = str(metric)
+        fixture_enabled = False
+        if config is not None:
+            try:
+                adapters = config.get("adapters") or {}
+                fixture_enabled = bool(
+                    (adapters.get("fixture_enabled") or False))
+            except Exception:  # noqa: BLE001 - fail-closed: no fixture
+                fixture_enabled = False
+        run_mode = str(getattr(deployment, "run_mode", "production") or "")
+        fixture_mode = run_mode in ("test", "example") and fixture_enabled
+
+        def _doc_meta(relative_path: str, content: str) -> dict[str, Any]:
+            return {
+                "relative_path": relative_path,
+                "content_sha256": compute_candidate_sha(content),
+                "byte_length": len(content.encode("utf-8")),
+                "truncated": len(content.encode("utf-8")) > 256 * 1024,
+            }
+
+        docs: list[dict[str, Any]] = []
+        rejected_paths: list[str] = []
+        if fixture_mode:
+            # Fixture fallback (test/example AND fixture_enabled): the
+            # runtime-relative catalog (PORT-001, same source as CC). An
+            # unresolvable/malformed catalog FAILS CLOSED (PORT-001) — never
+            # a silent mix with the workspace scan.
+            catalog_path = _fixture_catalog_path()
+            if catalog_path is None:
+                return _deny_raw(
+                    name, rule_ids=("PORT-001", "HOOK-004"),
+                    reason="semantic fixture catalog is unresolvable while "
+                           "fixture mode is active (fail-closed, PORT-001)",
+                    recovery="Restore the fixture catalog or disable "
+                             "fixture mode")
+            try:
+                catalog = json.loads(
+                    catalog_path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+                return _deny_raw(
+                    name, rule_ids=("PORT-001", "HOOK-004"),
+                    reason=f"semantic fixture catalog is malformed: "
+                           f"{type(error).__name__} (fail-closed)",
+                    recovery="Restore the fixture catalog or disable "
+                             "fixture mode")
+            for entry in (catalog.get("metrics") or []):
+                if not isinstance(entry, Mapping):
+                    continue
+                entry_metric = str(entry.get("name", ""))
+                entry_id = str(entry.get("id", ""))
+                if metric and metric.lower() not in (
+                        entry_metric.lower() + " " + entry_id.lower()):
+                    continue
+                description = str(entry.get("description", ""))
+                docs.append({**_doc_meta(
+                    f"fixture:{entry_id}", description),
+                    "content": description,
+                    "metric": entry_metric})
+        else:
+            semantic_root = workspace_root / "semantic"
+            if semantic_root.is_dir():
+                for path in sorted(semantic_root.rglob("*.md")):
+                    try:
+                        resolved = path.resolve(strict=True)
+                        resolved.relative_to(semantic_root.resolve())
+                    except (OSError, ValueError):
+                        # Symlink escape / unresolvable: reject + record
+                        # (CodebaseReader.search 手法).
+                        try:
+                            rejected_paths.append(
+                                str(path.relative_to(workspace_root)))
+                        except ValueError:
+                            rejected_paths.append(str(path))
+                        continue
+                    basename = path.stem
+                    header_metric = _semantic_metric_of(path)
+                    if metric and metric.lower() not in (
+                            basename.lower() + " "
+                            + (header_metric or "").lower()):
+                        continue
+                    try:
+                        content = path.read_text(encoding="utf-8")
+                    except (OSError, UnicodeDecodeError):
+                        continue
+                    try:
+                        relative_path = str(path.relative_to(workspace_root))
+                    except ValueError:
+                        relative_path = path.name
+                    docs.append({**_doc_meta(relative_path, content),
+                                 "content": content[: _SEMANTIC_DOC_CAP],
+                                 "metric": header_metric or basename})
+
+        if docs:
+            entry = EvidenceEntry.create(
+                source_tier="T1", evidence_source="semantic-layer",
+                rule_ids=("SEM-001", "SEM-002"),
+                payload={"metric": metric,
+                         "docs": [{k: v for k, v in d.items()
+                                   if k != "content"} for d in docs]},
+                runtime_name="agno", native_run_id=scope.run_id or "",
+                harness_release=harness_release,
+            )
+            scope.evidence_chain.append(entry.to_dict())
+            _record(name, "t1_semantic", entry)
+            out = func(**args)
+            if isinstance(out, Mapping):
+                return {**dict(out), "discovered": True,
+                        "docs": docs,
+                        "rejected_paths": rejected_paths}
+            return out
+        # No hit: record the T1 GAP evidence (SEM-001) — the _entry_marks_gap
+        # convention automatically satisfies the T2 degradation precondition
+        # (C002 semantics, same as CC).
+        entry = EvidenceEntry.create(
+            source_tier="T1", evidence_source="semantic-layer",
+            rule_ids=("SEM-001",),
+            payload={"status": "gap", "metric": metric,
+                     "reason": "no semantic doc matched"},
+            runtime_name="agno", native_run_id=scope.run_id or "",
+            harness_release=harness_release,
+        )
+        scope.evidence_chain.append(entry.to_dict())
+        _record(name, "t1_semantic", entry)
+        out = func(**args)
+        if isinstance(out, Mapping):
+            return {**dict(out), "discovered": False, "gap": True,
+                    "metric": metric, "rejected_paths": rejected_paths}
+        return out
+
     # --- chatbi_load_runbook (A1) ------------------------------------------
     def _load_runbook_handler(name: str, func: Callable[..., Any],
                               args: Mapping[str, Any]) -> Any:
@@ -2122,6 +2317,7 @@ def _build_domain_hook(
         "chatbi_query_source": _query_source,
         "chatbi_dbt_draft": _dbt_draft,
         "chatbi_dbt_execute": _dbt_execute,
+        "chatbi_semantic_discover": _semantic_discover,
     }
 
     def domain_hook(name: str, func: Callable[..., Any],
