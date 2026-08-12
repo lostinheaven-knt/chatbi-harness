@@ -515,11 +515,14 @@ def _make_bootstrap(scope: RunScope) -> Callable[..., dict]:
         resolve_executable allowlist -> CLI native runner -> source
         inventory -> scaffold).
 
-        The mysql connection details (host, port, user, credential,
-        executable path) come from the DEPLOYMENT configuration — the user
-        does not provide them and you must not ask for them. The spec only
-        needs the high-level fields, e.g.:
-        {"source_database": "public", "target_warehouse_db": "dw_agno"}."""
+        The spec REQUIRES the mysql connection fields (kernel
+        build_mysql_adapter_spec). Use the test-environment defaults:
+        {"host": "127.0.0.1", "port": 3306, "user": "root",
+         "database": "public", "target_warehouse_db": "dw_agno"}
+        Never put a password value in the spec (SEC-003): the local
+        no-password root omits the credential field entirely; otherwise
+        pass only the env var NAME (e.g. "MYSQL_PWD"). The mysql executable
+        path is deployment-bound and is not part of the spec."""
         return _echo("chatbi_bootstrap", spec=dict(spec or {}))
 
     return chatbi_bootstrap
