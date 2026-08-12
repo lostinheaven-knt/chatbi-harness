@@ -420,6 +420,33 @@ printf '{"path_bindings": {"fypro_docs_root": "/Users/admin/Downloads/workspace/
 
 **验收判定**：41/41 断言全绿（S1 判定=需要初始化 → S6 证据链齐）+ dw_agno 4 个真实新对象 + model_registry 落盘 + run.completed（gate=delivery, decision=pass）—— **live 通过（2026-08-12）**。回归：agno 套件 320 OK + conformance 退出码 0；零产品代码改动，无 live-found 产品缺陷。
 
+### 4.8.1 纯对话驱动补测（2026-08-12，PARTIAL —— 停在 4 层建模）
+
+> 驱动方式标注：**纯对话驱动**（agent-ui 同形态 API `POST /agents/chatbi-agno/runs`，每一轮都是用户消息 → 真实模型 deepseek-v4-flash 自主决策 → 工具调用 → 真实执行；review 用**真实 reviewer agent**，与 4.8 的 stub 判定不同）。
+> 详细报告：`docs/test-report-agno-full-journey-conversation-v1.md`。
+
+**逐轮结果**（会话 `ses-fj-conv`，run `63c95367`/`170eeeb5`/`b4dc7397` 等）：
+
+| 轮 | 驱动者输入 | 模型行为 | 分类 |
+|---|---|---|---|
+| T1 需求 | 「根据需求建数仓：核心功能使用情况分析，粒度日×功能，段全量。」 | 发现未初始化后**跳过确认交接直接执行 bootstrap**（乱序），随后以问句请求功能语义确认 | 尝试1/clean-1 DRIFT（散文被 C002 拦）；clean-2 **EXECUTED**（真实 bootstrap 125 表）+ HANDSOFF |
+| T2 确认 | 「功能 = scene…确认，开始初始化。」 | 建 ODS 草稿落盘 + 问 dbt 路径/窗口 → 答后继续 | HANDSOFF（正常） |
+| T3 扩源 | （未单独驱动到——模型直接跳去建层） | — | 对话面**无 merge 治理工具**（观察项） |
+| T4-T7 建层 | 「业务问题就是最初的需求…请继续完成数仓构建。」 | record_request → T1 gap → build_plan → impact → dbt_draft（ODS/DWD/DWS 落盘）→ submit_candidate → **review ×3 真实 reviewer 全 BLOCKED（REV-003 终局）** → registry_append（@approval 暂停） | **停在 4 层建模** |
+| 审批 seam | approvals API 以 superuser 解析（approved）+ continue | resume 后 approval_verify_hook **SEC-003 拦截**（run_subject 为空，fail-closed）→ 交付门 REV-003 终局 | **BLOCKED（已登记 seam，§5）** |
+| T8 查询 | 未到达 | — | — |
+
+**结论**：PARTIAL —— 真实模型能自主完成**发现未初始化 + 真实 bootstrap + ODS/DWD/DWS 草稿 + 请求/计划/影响/候选/审查链**，但**停在 4 层建模**：① 真实 reviewer 对模型文件候选 3 连 BLOCKED（REV-003 终局，工具链直驱版用 stub 判定规避了此边界）；② registry_append @approval 审批 seam —— OS 层 approvals API 可解析 approved，但 continue 后 ChatBI kernel 重验所需 `run_subject` 无法重建（AgentOS 2.6.22 resume 不重跑 pre-hooks，SEC-003 fail-closed，暂停点登记为人工步骤）。无产品缺陷，零产品代码改动。
+
+**补测复现**：
+```sh
+# 服务在线即可（serve.py --keep）
+/Users/admin/Downloads/workspace/agno-main/.venv/bin/python -B \
+  .scratch/agno-demo/drive_turn.py <session_id> "<一轮指令>" .scratch/agno-demo/fj-conv-tN
+# 审批 seam：curl -X POST :7777/approvals/<id>/resolve -d '{"status":"approved","resolved_by":"owner@example.com"}'
+#       然后：curl -X POST :7777/agents/chatbi-agno/runs/<run_id>/continue -F "tools=" -F "stream=true"
+```
+
 
 
 ## 5. 常见问题排查
@@ -430,7 +457,7 @@ printf '{"path_bindings": {"fypro_docs_root": "/Users/admin/Downloads/workspace/
 | agent 逐字段反复追问 | deepseek-v4-flash 过度澄清（模型能力边界） | 结构化消息一次性给全 7 字段；或换更强模型 |
 | agent 输出散文计划被拦 | 非问句结尾（交接契约） | 重问（带字段）；已登记的模型遵循度边界 |
 | run 长时间不结束 | 旧代码无 REVIEW_BLOCK_LIMIT | 确认 ≥720ec47 |
-| HITL 审批恢复失败 | agno 2.6.22 × DeepSeek tool_call_id 不匹配（已登记） | 等 agno 升级或手工续跑 |
+| HITL 审批恢复失败 | agno 2.6.22 × DeepSeek tool_call_id 不匹配（已登记）；2026-08-12 纯对话补测确认精确机理：OS approvals API 可解析 approved，但 continue 后 ChatBI approval_verify_hook 的 `run_subject`（contextvar，由 pre-hook 设置）为空 → SEC-003 fail-closed，registry_append 无法执行 | OS 层可解析 approved；受保护工具执行暂停点登记为人工步骤；等 agno 升级或手工续跑 |
 | 服务启动报错 | 端口占用/状态损坏 | `kill $(lsof -ti:7777)`；必要时不带 --keep 重启 |
 
 ## 6. 环境重置（验收后收尾）
