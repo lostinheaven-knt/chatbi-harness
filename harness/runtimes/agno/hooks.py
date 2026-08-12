@@ -3000,12 +3000,16 @@ class ChatbiDeliveryGuardrail(BaseGuardrail):
                 # with a conversational handoff (clarification question,
                 # request for input) has no evidence chain BY DESIGN — the
                 # flow has not produced anything to deliver. The delivery
-                # gate binds deliveries only; a question to the user is not
-                # a delivery. Everything else (prose data answers without
-                # the governed chain) still C002-blocks, fail-closed.
-                content = getattr(run_output, "content", None)
-                if self._is_conversational_handoff(
-                        content if isinstance(content, str) else ""):
+                # gate binds deliveries only; a handoff to the user is not
+                # a delivery. Delivery is DEFINED by the §7.1 contract: the
+                # final message is the frozen candidate object. When the
+                # output carries no candidate object, the run ended
+                # conversationally (clarify/status) regardless of
+                # punctuation (real-model live 2026-08-12: the model asked
+                # for the time range ending with '。' — a question-ending
+                # heuristic is whack-a-mole); a candidate JSON without the
+                # governed chain still C002-blocks, fail-closed.
+                if not isinstance(self._final_candidate(run_output), Mapping):
                     return
                 rule_ids = ("REV-003", "HOOK-004")
                 reason = ("no evidence chain and no review were recorded; "
