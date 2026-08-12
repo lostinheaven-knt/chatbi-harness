@@ -96,32 +96,26 @@ class RuntimeNativeRunner:
     # -- subprocess seam ---------------------------------------------------
     def _run_cli(self, argv: list[str], *, timeout: int) -> Any:
         env = build_cli_env()
-        kwargs: dict[str, Any] = {
-            "argv": argv,
-            "cwd": str(self._workspace_root),
-            "env": env,
-            "timeout": timeout,
-        }
         if self._cli_runner is not None:
-            return self._cli_runner(**kwargs)
+            return self._cli_runner(
+                argv=argv, cwd=str(self._workspace_root), env=env,
+                timeout=timeout)
         return subprocess.run(
-            argv, shell=False, capture_output=True, check=False, **kwargs)
+            argv, shell=False, cwd=str(self._workspace_root), env=env,
+            capture_output=True, timeout=timeout, check=False)
 
     def _run_cli_with_env(
         self, argv: list[str], *, credential_env_names: tuple[str, ...],
         timeout: int,
     ) -> Any:
         env = build_cli_env(credential_env_names)
-        kwargs: dict[str, Any] = {
-            "argv": argv,
-            "cwd": str(self._workspace_root),
-            "env": env,
-            "timeout": timeout,
-        }
         if self._cli_runner is not None:
-            return self._cli_runner(**kwargs)
+            return self._cli_runner(
+                argv=argv, cwd=str(self._workspace_root), env=env,
+                timeout=timeout)
         return subprocess.run(
-            argv, shell=False, capture_output=True, check=False, **kwargs)
+            argv, shell=False, cwd=str(self._workspace_root), env=env,
+            capture_output=True, timeout=timeout, check=False)
 
     @staticmethod
     def _stdout_text(result: Any) -> str:
