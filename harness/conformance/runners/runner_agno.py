@@ -751,7 +751,13 @@ def _setup_e009(ws: Path) -> dict[str, Any]:
 
 def _native_e002(workflow_id: str, step_id: str,
                  ctx: Mapping[str, Any]) -> dict[str, Any]:
-    """E002 native stub: the mysql introspection writes a source inventory."""
+    """E002 native stub: the mysql introspection writes a source inventory.
+
+    Phase-2 adaptation (technical-design-agno-phase2 §2 risk note + §3.3):
+    the bootstrap hook now continues with the ``scaffold`` native step
+    (dbt_project.yml + models/{ods,dwd,dws,ads}); the stub answers ok so the
+    scenario normalized output stays byte-identical.
+    """
     if step_id == "run_mysql":
         ws = Path(ctx["executable"]).resolve().parents[1]
         path = ws / ".chatbi" / "bootstrap" / "source_inventory.json"
@@ -762,6 +768,9 @@ def _native_e002(workflow_id: str, step_id: str,
                 {"name": "id", "data_type": "int", "is_primary_key": True}]}],
         }), encoding="utf-8")
         return {"inventory_path": str(path)}
+    if step_id == "scaffold":
+        return {"status": "ok",
+                "scaffold": {"project": "dw", "models_dir": "models"}}
     raise RuntimeError(
         f"unexpected native step {workflow_id}/{step_id} (fail-closed)")
 

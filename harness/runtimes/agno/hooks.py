@@ -637,6 +637,10 @@ def build_tool_hooks(
         native_runner=native_runner,
         ir_workflows=ir_workflows,
         runbook_registry=runbook_registry,
+        #: Phase 2 (Q4): the deployment boundary (cli_allowlist / dbt_bin /
+        #: run_mode / warehouse_db) is the authority for the mysql/dbt
+        #: execution surface (technical-design-agno-phase2 §3.3, §5.1).
+        deployment=deployment,
     )
 
     # -- layer 6: event envelope (requested / completed) --------------------
@@ -700,6 +704,7 @@ def _build_domain_hook(
     native_runner: Callable[..., Any] | None,
     ir_workflows: Mapping[str, Any] | None = None,
     runbook_registry: Mapping[str, Any] | None = None,   # A1（IR+manifest 派生）
+    deployment: Any = None,    # Phase 2 (Q4): deployment boundary authority
 ) -> Callable[..., Any]:
     """Dispatch per governance tool; every judgment goes through the Kernel."""
 
@@ -1488,14 +1493,26 @@ def _build_domain_hook(
                 path_bindings=request.get("path_bindings"),
                 cli_adapters=request.get("cli_adapters"),
             )
-            allowlist = tuple(request.get("cli_allowlist", []) or ())
+            # Phase 2 (Q4, technical-design-agno-phase2 §3.3): the
+            # executable allowlist comes from the DEPLOYMENT config
+            # (deployment authority — the request body no longer carries
+            # it). Compatibility bridge: only when NO deployment config
+            # exists (config_path None, e.g. the conformance E002 scenario
+            # scripted with a temp mysql executable) the request-body
+            # allowlist is honored; a configured deployment NEVER falls back
+            # to the request body (fail-closed).
+            allowlist = tuple(getattr(deployment, "cli_allowlist", ()) or ())
+            if not allowlist and deployment is not None \
+                    and getattr(deployment, "config_path", None) is None:
+                allowlist = tuple(request.get("cli_allowlist", []) or ())
             exe = resolve_executable("mysql", allowlist)
             if exe is None:
                 return _deny_raw(
                     name, rule_ids=("SEC-001", "PORT-001"),
                     reason="resolve_executable failed (fail-closed)",
                     recovery="Confirm the mysql executable on the "
-                             "operator allowlist")
+                             "operator allowlist (deployment "
+                             "cli_allowlist)")
             if native_runner is None:
                 return _deny_raw(
                     name, rule_ids=("HOOK-004",),
@@ -1507,6 +1524,13 @@ def _build_domain_hook(
                                    {**request, "spec": spec,
                                     "local_config": merged,
                                     "executable": str(exe)})
+            if isinstance(native, Mapping) and native.get("status") == "error":
+                return _deny_raw(
+                    name, rule_ids=("HOOK-004",),
+                    reason="mysql run failed: "
+                           f"{native.get('error_category', 'unknown')}",
+                    recovery="Inspect the mysql CLI error and re-run the "
+                             "bootstrap chain")
             inventory_path = (native or {}).get("inventory_path") if isinstance(
                 native, Mapping) else None
             if not inventory_path:
@@ -1515,6 +1539,18 @@ def _build_domain_hook(
                                         "source inventory",
                                  recovery="Re-run the mysql introspection")
             inventory = read_source_inventory(Path(str(inventory_path)))
+            # Phase 2 (module F, technical-design-agno-phase2 §3.3): the
+            # bootstrap chain continues with the workspace scaffold
+            # (dbt_project.yml + models/{ods,dwd,dws,ads} + blueprint stub).
+            # A scaffold failure DENIES the bootstrap (never silent).
+            scaffold = native_runner("chatbi-bootstrap", "scaffold", {})
+            if not (isinstance(scaffold, Mapping)
+                    and scaffold.get("status") == "ok"):
+                return _deny_raw(name, rule_ids=("HOOK-004",),
+                                 reason="workspace scaffold failed "
+                                        "(fail-closed)",
+                                 recovery="Inspect the scaffold step and "
+                                          "re-run the bootstrap chain")
         except GateError as error:
             return _deny(name, error.decision)
         except Exception as error:  # noqa: BLE001 - fail-closed
