@@ -2852,7 +2852,10 @@ class ChatbiDeliveryGuardrail(BaseGuardrail):
         if not text:
             return False
         stripped = text.strip()
-        if stripped.endswith("?"):
+        # ASCII "?" and full-width "？" (U+FF1F): real-model live (agno 验收
+        # 2026-08-12) — the model answered a handoff question in Chinese with
+        # a full-width question mark and was C002-blocked.
+        if stripped.endswith("?") or stripped.endswith("？"):
             return True
         return "clarif" in stripped.lower()
 
