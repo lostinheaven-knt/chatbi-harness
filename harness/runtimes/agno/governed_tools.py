@@ -40,11 +40,16 @@ from chatbi_harness_ir.conditions import (
 )
 from chatbi_harness_ir.schema import ExecutorKind, PROTECTED_ACTIONS
 
-#: The 15 governance tools (design §1.2 + design-runbook-completion A1:
+#: The 19 governance tools (design §1.2 + design-runbook-completion A1:
 #: ``chatbi_load_runbook`` is the 15th, the fail-closed governed runbook
-#: loader). ``workflow_ids`` is filled by :func:`build_tool_specs` from the
-#: IR; ``kernel_ref`` is the declarative kernel dotted path (audit only —
-#: the real judgment is in the hooks).
+#: loader; agno Phase 2 adds the 4 runtime-adaptation tools —
+#: ``chatbi_query_source`` / ``chatbi_dbt_draft`` / ``chatbi_dbt_execute`` /
+#: ``chatbi_semantic_discover``, technical-design-agno-phase2 §5.1). Their
+#: ``workflow_ids`` is empty (the IR has no corresponding step ids — honest
+#: registration: the tool-surface extension is an agno runtime adaptation,
+#: the IR is untouched); the allowlist invariant (``specs_by_name.keys()``)
+#: auto-admits them. ``kernel_ref`` is the declarative kernel dotted path
+#: (audit only — the real judgment is in the hooks).
 _TOOL_NAMES = (
     "chatbi_record_request",
     "chatbi_record_evidence",
@@ -61,6 +66,10 @@ _TOOL_NAMES = (
     "chatbi_init_diagnostic",
     "chatbi_bootstrap",
     "chatbi_load_runbook",
+    "chatbi_query_source",
+    "chatbi_dbt_draft",
+    "chatbi_dbt_execute",
+    "chatbi_semantic_discover",
 )
 
 #: Step id -> governance tool (base mapping; step ids that collide across
@@ -174,11 +183,21 @@ def build_tool_specs(ir_workflows: Mapping[str, Any]) -> list[ToolSpec]:
         #: registry (IR prompts[] + manifest, A1) — the tool body is a dumb
         #: registry lookup; the hook records the runbook-load evidence.
         "chatbi_load_runbook": "runtimes.agno.prompt_loader.build_runbook_registry",
+        #: Phase 2 audit anchors (technical-design-agno-phase2 §5.1): the
+        #: kernel primitives the corresponding hooks hang on.
+        "chatbi_query_source": "chatbi_governance.adapters.CliAdapter",
+        "chatbi_dbt_draft": "chatbi_governance.build_plan.build_model_entry",
+        "chatbi_dbt_execute": "chatbi_governance.adapters.validate_cli_argv",
+        "chatbi_semantic_discover": "chatbi_governance.evidence.EvidenceEntry.create",
     }
     #: Tools whose execution may write governed artifacts (registry/correction).
+    #: Phase 2 (Q5): chatbi_dbt_draft writes model files under ws/models/**
+    #: and chatbi_dbt_execute runs dbt against the warehouse — both are
+    #: write-capable governed operations (no bare Write surface, R2).
     _WRITE_TOOLS = frozenset({"chatbi_registry_append", "chatbi_correction",
                               "chatbi_bootstrap", "chatbi_drift_report",
-                              "chatbi_record_evidence", "chatbi_submit_candidate"})
+                              "chatbi_record_evidence", "chatbi_submit_candidate",
+                              "chatbi_dbt_draft", "chatbi_dbt_execute"})
     #: Tools that carry AgentOS @approval when their workflow declares a
     #: human_approval step (SEM-003 protected actions).
     _APPROVAL_TOOLS = frozenset({"chatbi_registry_append", "chatbi_correction"})
@@ -496,6 +515,49 @@ def _make_bootstrap(scope: RunScope) -> Callable[..., dict]:
     return chatbi_bootstrap
 
 
+def _make_query_source(scope: RunScope) -> Callable[..., dict]:
+    def chatbi_query_source(statement: str, tier: str = "T2") -> dict[str, Any]:
+        """Query a governed table (dw_agno model or inventoried source
+        table) through the mysql CLI (read-only SELECT; the query hook
+        enforces the SQL readonly whitelist + table allowlist + tier
+        precondition and records T2/T3 evidence)."""
+        return _echo("chatbi_query_source", statement=statement, tier=tier)
+
+    return chatbi_query_source
+
+
+def _make_dbt_draft(scope: RunScope) -> Callable[..., dict]:
+    def chatbi_dbt_draft(relative_path: str, content: str) -> dict[str, Any]:
+        """Draft a model file under ws/models/** (the draft hook enforces
+        the models/ path containment + suffix allowlist + size cap and
+        records the candidate SHA; the file is written ONLY through this
+        governed tool, no bare Write)."""
+        return _echo("chatbi_dbt_draft", relative_path=relative_path,
+                     content=content)
+
+    return chatbi_dbt_draft
+
+
+def _make_dbt_execute(scope: RunScope) -> Callable[..., dict]:
+    def chatbi_dbt_execute(operation: str, select: str) -> dict[str, Any]:
+        """Run dbt run/test for reviewed model candidates (the execute
+        hook enforces the operation/select whitelist, the REV-001 review
+        SHA binding and the dbt argv discipline)."""
+        return _echo("chatbi_dbt_execute", operation=operation, select=select)
+
+    return chatbi_dbt_execute
+
+
+def _make_semantic_discover(scope: RunScope) -> Callable[..., dict]:
+    def chatbi_semantic_discover(metric: str = "") -> dict[str, Any]:
+        """Discover semantic-layer metric docs under ws/semantic/** (or the
+        runtime fixture catalog in explicit test/example mode); a miss
+        records the T1 gap evidence (SEM-001 degradation)."""
+        return _echo("chatbi_semantic_discover", metric=metric)
+
+    return chatbi_semantic_discover
+
+
 #: Unified runtime adaptation note prepended to every chatbi_load_runbook
 #: response (design-runbook-completion A3): the 9 runbook bodies stay the
 #: CC-authored prose (no per-book edits -> no hash churn); this preamble
@@ -601,6 +663,10 @@ def build_governed_tools(
         "chatbi_bootstrap": _make_bootstrap(scope),
         "chatbi_load_runbook": _make_load_runbook(
             scope, dict(runbook_registry) if runbook_registry else {}),
+        "chatbi_query_source": _make_query_source(scope),
+        "chatbi_dbt_draft": _make_dbt_draft(scope),
+        "chatbi_dbt_execute": _make_dbt_execute(scope),
+        "chatbi_semantic_discover": _make_semantic_discover(scope),
     }
 
     from . import ensure_agno_unshadowed

@@ -229,8 +229,132 @@ _TIER_SOURCE = {"T1": "semantic-layer", "T2": "curated-reference",
 _TIER_RULE_IDS = {"T1": ("SEM-001", "SEM-002"), "T2": ("RAW-001", "SRC-001"),
                   "T3": ("RAW-003",)}
 
-#: Path-typed argument keys inspected by the realpath hook.
-_PATH_KEYS = ("codebase", "ref", "path", "target", "codebase_path")
+#: Path-typed argument keys inspected by the realpath hook. Phase 2 (Q5):
+#: ``relative_path`` (chatbi_dbt_draft) joins the set — absolute paths are
+#: rejected (PORT-001); the draft handler double-checks containment.
+_PATH_KEYS = ("codebase", "ref", "path", "target", "codebase_path",
+              "relative_path")
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 (module A, technical-design-agno-phase2 §5.2): read-only SQL
+# validation + table allowlist (pure functions, no SQL parser dependency)
+# ---------------------------------------------------------------------------
+
+#: Forbidden statement keywords (word-boundary, case-insensitive). ``set`` /
+#: ``use`` / ``show`` / ``describe`` / ``explain`` are statement starters in
+#: MySQL — a SELECT statement must never contain them at word boundaries
+#: (regex whitelist discipline: false positives deny, never a silent pass).
+_FORBIDDEN_SQL_WORD_RE = re.compile(
+    r"\b(insert|update|delete|drop|alter|create|truncate|rename|grant|"
+    r"revoke|call|set|use|show|describe|explain|load\s+data|"
+    r"into\s+(outfile|dumpfile))\b",
+    re.IGNORECASE,
+)
+_SQL_MAX_STATEMENT_BYTES = 16 * 1024
+
+
+def validate_readonly_select(statement: str) -> str | None:
+    """None = legal; otherwise the error category (deterministic, HOOK-001).
+
+    Rules (all regex whitelist, no SQL parser dependency —
+    technical-design-agno-phase2 §5.2):
+
+    - must start with ``select`` (``^select\b``, case-insensitive) after
+      stripping whitespace;
+    - ``;`` anywhere -> ``multi_statement`` (trailing included);
+    - ``--`` or ``/*`` -> ``comment``;
+    - a forbidden keyword at a word boundary -> ``forbidden_keyword``;
+    - length > 16 KiB -> ``too_long``.
+    """
+    if not isinstance(statement, str):
+        return "not_select"
+    stripped = statement.strip()
+    if not re.match(r"^select\b", stripped, re.IGNORECASE):
+        return "not_select"
+    if ";" in statement:
+        return "multi_statement"
+    if "--" in statement or "/*" in statement:
+        return "comment"
+    if _FORBIDDEN_SQL_WORD_RE.search(statement):
+        return "forbidden_keyword"
+    if len(statement.encode("utf-8")) > _SQL_MAX_STATEMENT_BYTES:
+        return "too_long"
+    return None
+
+
+#: from/join table reference (``db.table`` or ``table``, backticks allowed).
+_TABLE_REF_RE = re.compile(
+    r"(?:from|join)\s+"
+    r"((?:`[^`]+`|[a-zA-Z_][a-zA-Z0-9_]*)"
+    r"(?:\s*\.\s*(?:`[^`]+`|[a-zA-Z_][a-zA-Z0-9_]*))?)",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def resolve_table_refs(statement: str) -> list[str]:
+    """Extract from/join table references (schema.table and backticks
+    included), regex-collected and deduplicated (design §5.2).
+
+    The allowlist check is the security boundary: a reference this regex
+    misses is simply NOT in the allowlist -> the query is denied
+    (fail-closed direction).
+    """
+    refs: list[str] = []
+    seen: set[str] = set()
+    for match in _TABLE_REF_RE.finditer(statement or ""):
+        raw = match.group(1).strip().lower()
+        raw = raw.replace("`", "").replace(" ", "")
+        if raw and raw not in seen:
+            seen.add(raw)
+            refs.append(raw)
+    return refs
+
+
+def _load_query_allowlists(
+    workspace_root: Path,
+) -> tuple[frozenset[str], frozenset[str], str]:
+    """(dw_agno 模型集, public 表集, source_database) — fail-closed.
+
+    dw_agno models: ``.chatbi/model_registry.json`` entry.name union
+    ``ws/models/**/*.sql`` filenames (minus .sql); public tables:
+    ``.chatbi/bootstrap/source_inventory.json`` tables[].name. A missing or
+    corrupt source contributes the EMPTY set for its domain (queries there
+    are denied, never silently widened) — design §5.2.
+    """
+    models: set[str] = set()
+    try:
+        from chatbi_governance.build_plan import read_model_registry
+
+        for entry in read_model_registry(
+                workspace_root / ".chatbi" / "model_registry.json"):
+            models.add(str(entry.name).lower())
+    except Exception:  # noqa: BLE001 - corrupt/absent registry contributes nothing
+        pass
+    models_dir = workspace_root / "models"
+    if models_dir.is_dir():
+        for path in models_dir.rglob("*.sql"):
+            models.add(path.stem.lower())
+    public: set[str] = set()
+    source_db = ""
+    try:
+        inventory = read_source_inventory(
+            workspace_root / ".chatbi" / "bootstrap"
+            / "source_inventory.json")
+        source_db = str(inventory.source_database).lower()
+        public = {str(t.name).lower() for t in inventory.tables}
+    except Exception:  # noqa: BLE001 - absent/corrupt inventory -> denied
+        pass
+    return frozenset(models), frozenset(public), source_db
+
+
+def query_table_allowlist(
+    workspace_root: Path,
+) -> tuple[frozenset[str], frozenset[str]]:
+    """(dw_agno 模型集, public 表集) — fail-closed allowlist source
+    (design §5.2). See :func:`_load_query_allowlists`."""
+    models, public, _source_db = _load_query_allowlists(workspace_root)
+    return models, public
 
 
 @dataclass(frozen=True)
@@ -1574,6 +1698,166 @@ def _build_domain_hook(
                 "table_count": len(inventory.tables)}}
         return out
 
+    # --- chatbi_query_source (Phase 2, module A) ---------------------------
+    def _mysql_adapter_spec() -> dict | None:
+        """cli_adapters.mysql spec: effective config first, then a fresh
+        read of the local config file (the bootstrap writes the formal argv;
+        a long-running server sees it without restart). None = not
+        configured (fail-closed deny)."""
+        try:
+            if config is not None:
+                adapters = config.get("cli_adapters") or {}
+                if isinstance(adapters, Mapping):
+                    spec = adapters.get("mysql")
+                    if isinstance(spec, Mapping) and spec.get("argv"):
+                        return dict(spec)
+        except Exception:  # noqa: BLE001 - fall through to the file read
+            pass
+        local = workspace_root / ".claude" / "chatbi-harness.local.json"
+        try:
+            data = json.loads(local.read_text(encoding="utf-8"))
+            spec = (data.get("cli_adapters") or {}).get("mysql")
+            if isinstance(spec, Mapping) and spec.get("argv"):
+                return dict(spec)
+        except (OSError, ValueError, TypeError):
+            pass
+        return None
+
+    def _query_source(name: str, func: Callable[..., Any],
+                      args: Mapping[str, Any]) -> Any:
+        import hashlib
+
+        statement = args.get("statement")
+        tier = args.get("tier") or "T2"
+        if not isinstance(statement, str) or not statement.strip():
+            return _deny_raw(
+                name, rule_ids=("HOOK-004",),
+                reason="query_source requires a non-empty SQL statement",
+                recovery="Provide the read-only SELECT statement")
+        if tier not in ("T2", "T3"):
+            return _deny_raw(
+                name, rule_ids=("SEM-001", "HOOK-004"),
+                reason=f"tier {tier!r} is not supported for direct queries; "
+                       "T1 queries come only from the semantic layer "
+                       "(SEM-001)",
+                recovery="Use tier T2 (curated) or T3 (raw exploration)")
+        invalid = validate_readonly_select(statement)
+        if invalid is not None:
+            return _deny_raw(
+                name, rule_ids=("SEC-001", "HOOK-004"),
+                reason=f"SQL statement rejected: {invalid} (read-only "
+                       "SELECT whitelist, SEC-001)",
+                recovery="Send a single read-only SELECT without comments, "
+                         "multi-statements or forbidden keywords")
+        refs = resolve_table_refs(statement)
+        if not refs:
+            return _deny_raw(
+                name, rule_ids=("SEC-001", "HOOK-004"),
+                reason="no table reference detected in the statement",
+                recovery="Reference a governed table explicitly (FROM/JOIN)")
+        models, public, source_db = _load_query_allowlists(workspace_root)
+        warehouse_db = str(getattr(deployment, "warehouse_db",
+                                   "dw_agno")).lower()
+        union = models | public
+        allowed_surface = ", ".join(sorted(union)[:20])
+        for ref in refs:
+            parts = ref.split(".", 1)
+            if len(parts) == 1:
+                ok = ref in union
+            else:
+                db, table = parts
+                ok = (
+                    (db == warehouse_db and table in models)
+                    or (bool(source_db) and db == source_db and table in public)
+                )
+            if not ok:
+                return _deny_raw(
+                    name, rule_ids=("SEM-001", "SEC-001"),
+                    reason=f"table {ref!r} is not on the governed query "
+                           "allowlist (SEM-001/SEC-001)",
+                    recovery="Query only dw_agno models or inventoried "
+                             "source tables; allowed surface (sample): "
+                             + (allowed_surface or "(none — run "
+                               "chatbi-bootstrap first)"))
+        # Tier-gap precondition (IR when): T2 needs a recorded T1 gap, T3 a
+        # recorded T2 gap (SEM-001 degradation semantics, same as
+        # chatbi_record_evidence).
+        when_expr = _TIER_WHEN.get(tier)
+        if when_expr and not evaluate_step_condition(
+            when_expr, evidence_chain=tuple(scope.evidence_chain),
+            request=_request(),
+        ):
+            return _deny_raw(
+                name, rule_ids=("SEM-001", "HOOK-004"),
+                reason=f"tier {tier} requires a recorded "
+                       f"{'T1' if tier == 'T2' else 'T2'} gap; no gap "
+                       "evidence was recorded (SEM-001)",
+                recovery="Record the upper-tier gap evidence first "
+                         "(chatbi_semantic_discover / "
+                         "chatbi_record_evidence)")
+        spec = _mysql_adapter_spec()
+        if spec is None:
+            return _deny_raw(
+                name, rule_ids=("PORT-001", "SEC-001"),
+                reason="cli_adapters.mysql is not configured (deployment "
+                       "boundary, PORT-001)",
+                recovery="Run chatbi-bootstrap to write the mysql adapter "
+                         "argv, or configure cli_adapters.mysql in the "
+                         "local config")
+        exe = resolve_executable(
+            "mysql", tuple(getattr(deployment, "cli_allowlist", ()) or ()))
+        if exe is None:
+            return _deny_raw(
+                name, rule_ids=("PORT-001", "SEC-001"),
+                reason="mysql executable is not on the deployment "
+                       "cli_allowlist (fail-closed)",
+                recovery="Approve the mysql executable realpath in the "
+                         "deployment config cli_allowlist")
+        if native_runner is None or not hasattr(native_runner,
+                                                "run_mysql_query"):
+            return _deny_raw(
+                name, rule_ids=("HOOK-004",),
+                reason="query_source requires a wired native runner "
+                       "(fail-closed, FBK-003)",
+                recovery="Wire the runtime native runner before querying")
+        result = native_runner.run_mysql_query(
+            statement=statement, spec=spec, executable=exe)
+        if not isinstance(result, Mapping) or result.get("status") != "ok":
+            category = (result or {}).get("error_category", "unknown") \
+                if isinstance(result, Mapping) else "unknown"
+            return _deny_raw(
+                name, rule_ids=("HOOK-004",),
+                reason=f"mysql query failed: {category}",
+                recovery="Inspect the mysql CLI error and re-run with a "
+                         "corrected statement")
+        rows = result.get("rows") or []
+        row_count = int(result.get("row_count", len(rows)) or 0)
+        truncated = bool(result.get("truncated", False))
+        sha = hashlib.sha256(statement.encode("utf-8")).hexdigest()
+        # Evidence (t2_curated / t3_raw step ids — inside the delivery gate
+        # _tier_chain source set, zero gate changes): the statement text is
+        # NEVER in the payload (SEC-003); rows are capped at 100.
+        entry = EvidenceEntry.create(
+            source_tier=tier,
+            evidence_source=("curated-reference" if tier == "T2"
+                             else "raw-exploration"),
+            rule_ids=_TIER_RULE_IDS[tier] + ("PORT-001",),
+            payload={"statement_sha256": sha, "row_count": row_count,
+                     "truncated": truncated, "rows": rows[:100]},
+            runtime_name="agno", native_run_id=scope.run_id or "",
+            harness_release=harness_release,
+        )
+        scope.evidence_chain.append(entry.to_dict())
+        _record(name, "t2_curated" if tier == "T2" else "t3_raw", entry)
+        out = func(**args)
+        if isinstance(out, Mapping):
+            return {**dict(out), "query": {
+                "status": "ok", "row_count": row_count,
+                "truncated": truncated, "rows": rows[:200],
+                "untrusted": bool(result.get("untrusted", True)),
+                "statement_sha256": sha}}
+        return out
+
     # --- chatbi_load_runbook (A1) ------------------------------------------
     def _load_runbook_handler(name: str, func: Callable[..., Any],
                               args: Mapping[str, Any]) -> Any:
@@ -1619,6 +1903,7 @@ def _build_domain_hook(
         "chatbi_init_diagnostic": _init_diagnostic,
         "chatbi_bootstrap": _bootstrap,
         "chatbi_load_runbook": _load_runbook_handler,
+        "chatbi_query_source": _query_source,
     }
 
     def domain_hook(name: str, func: Callable[..., Any],
