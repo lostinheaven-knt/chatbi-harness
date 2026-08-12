@@ -58,7 +58,13 @@ _GOVERNANCE_PROTOCOL = (
     "it; if it says ASK the user, ask the user.\n"
     "6. When you need input from the user, END your message with a "
     "question — the delivery gate treats question-ending messages as "
-    "conversational handoffs, not deliveries."
+    "conversational handoffs, not deliveries.\n"
+    "7. Non-analyze workflows (init, bootstrap, maintain-model, "
+    "build-from-requirement, evaluate, correction, audit-drift, "
+    "maintain-knowledge): load the runbook with chatbi_load_runbook and "
+    "execute with the workflow's chatbi_* tool (e.g. chatbi_bootstrap). "
+    "The CC /chatbi-* commands and native skill tools (get_skill_*) do NOT "
+    "exist in this runtime — never call them."
 )
 
 from pathlib import Path
@@ -142,7 +148,6 @@ def build_governed_agent(
     ensure_agno_unshadowed()
     from agno.agent import Agent
     from agno.models.openai import OpenAIResponses
-    from agno.skills import LocalSkills, Skills
     from agno.utils.hooks import normalize_post_hooks, normalize_pre_hooks
 
     if model is None and model_config is None:
@@ -227,8 +232,16 @@ def build_governed_agent(
             base_url=model_config.base_url or None,
         ),
         instructions=instructions,
-        skills=Skills([LocalSkills(str(prompt_assets.skills_root))],
-                      raise_on_loader_error=True),
+        # No agno-native Skills mounting (agno 验收 2026-08-12): the
+        # Skills([LocalSkills]) wrapper exposes get_skill_instructions /
+        # get_skill_reference / get_skill_script as agent tools, which the
+        # real model picks for "load skill" intent and gets C011-blocked —
+        # tool-surface noise that distracts from the governed loader. The
+        # runbook content is fully reachable via chatbi_load_runbook
+        # (sha256-pinned) and the governance+runbook bodies are already
+        # statically injected above; the native skill tools must not exist
+        # on the agent's surface (C011 interception stays for genuine
+        # violations only).
         tools=tools,
         tool_hooks=tool_hooks,
         pre_hooks=pre_hooks,

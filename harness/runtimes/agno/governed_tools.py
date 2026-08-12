@@ -575,8 +575,15 @@ _RUNTIME_ADAPTATION_PREAMBLE = (
     "review, …) goes through those tools, and the deterministic edges "
     "(allowlist, evidence preconditions, candidate SHA binding, review "
     "verdict validation, approval, realpath, delivery gate) are enforced by "
-    "the tool hooks and guardrails. Native skill tools (get_skill_*) are "
-    "NOT allowlisted; load runbooks only via chatbi_load_runbook."
+    "the tool hooks and guardrails. The /chatbi-* commands do NOT exist in "
+    "this runtime — this runbook you just loaded IS the procedure. "
+    "Non-analyze workflows (init, bootstrap, maintain-model, "
+    "build-from-requirement, evaluate, correction, audit-drift, "
+    "maintain-knowledge): execute them with their workflow tool directly — "
+    "e.g. chatbi_bootstrap for chatbi-bootstrap, chatbi_init_diagnostic for "
+    "chatbi-init, chatbi_registry_append for maintain-model registration. "
+    "There are no native skill tools (get_skill_*) on this agent's surface "
+    "— never try to call them; load runbooks only via chatbi_load_runbook."
 )
 
 
