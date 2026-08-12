@@ -11,7 +11,7 @@ form; 裁决 3: skill+hooks governance). Modules:
 - :mod:`runtimes.agno.agent_builder` — ``build_governed_agent``: assembles
   instructions/skills/tools/tool_hooks/guardrails (single agent, 9
   runbooks);
-- :mod:`runtimes.agno.governed_tools` — the 14 governance tool functions +
+- :mod:`runtimes.agno.governed_tools` — the 19 governance tool functions +
   tool registry + IR condition evaluation;
 - :mod:`runtimes.agno.hooks` — six-layer tool_hooks chain + run-level
   guardrails (request/policy/delivery; ADR-002 terminal gate);

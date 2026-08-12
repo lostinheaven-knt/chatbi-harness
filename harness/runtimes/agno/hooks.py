@@ -10,13 +10,15 @@ edges (design §2, modification §6.1):
   first)** — empirically verified on 2.6.22 (the design doc's "列表尾=最外层"
   is inverted; M7 registration). Semantic order outer->inner:
 
-    1. ``sanitize_hook``    — SEC-003/PORT-001 arg sanitization (+ run scope
+    1. ``realpath_hook``    — path-typed args: absolute-path escape and
+                             undeclared codebase alias -> deny (C010, SEC-001);
+                             runs BEFORE sanitize so escape detection sees the
+                             RAW argument values (M7 note);
+    2. ``sanitize_hook``    — SEC-003/PORT-001 arg sanitization (+ run scope
                              refresh from ``run_context``);
-    2. ``allowlist_hook``   — IR tool-surface allowlist (C011): a tool that
+    3. ``allowlist_hook``   — IR tool-surface allowlist (C011): a tool that
                              is not a governance tool or a read-only file
                              tool is denied;
-    3. ``realpath_hook``    — path-typed args: absolute-path escape and
-                             undeclared codebase alias -> deny (C010, SEC-001);
     4. ``approval_verify_hook`` — ``@approval`` tools: AgentOS confirmation
                              has passed (the call is about to run) -> Kernel
                              re-verification via the ApprovalCoordinator

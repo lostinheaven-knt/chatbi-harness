@@ -1,7 +1,7 @@
 """Governed tool surface for the single ChatBI agent (skill+hooks module A).
 
 The agent does NOT hold bare Write/Edit/Bash tools: every write-capable or
-governed operation goes through one of the 15 ``chatbi_*`` governance tools
+governed operation goes through one of the 19 ``chatbi_*`` governance tools
 (design §1.2, modification §3 rule R2). Each governance tool is a plain
 Python function + ``@tool``; protected tools additionally carry the
 ``@approval(type='required')`` sentinel (AgentOS native HITL). Per design the

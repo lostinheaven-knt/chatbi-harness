@@ -14,7 +14,7 @@ routing + governance tools + tool_hooks + guardrails):
        (``config.py`` — adjudication 7: keys only from the deployment
        config / env, never persisted);
     4. ``agent_builder.build_governed_agent``: instructions (governance +
-       runbook bodies + routing table), 7 skills, 14 governance tools,
+       runbook bodies + routing table), 7 skills, 19 governance tools,
        six-layer tool_hooks, 2 pre + 1 post guardrails (ADR-002 terminal
        gate), stub seams (``reviewer_runner``/``native_runner``/``model``)
        injected for conformance;

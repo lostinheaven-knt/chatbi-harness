@@ -11,7 +11,7 @@ implemented) from the module A-D components:
 - skills: ``Skills([LocalSkills(skills_root)], raise_on_loader_error=True)``
   mounting the 7 manifest-registered CC skills (agno 2.6.22, spike R5
   pinned);
-- tools: the 14 governance tools (dumb bodies, module A) + read-only file
+- tools: the 19 governance tools (dumb bodies, module A) + read-only file
   tools surface (agent holds NO bare Write/Edit/Bash — design R2);
 - tool_hooks: the six-layer chain (module B);
 - pre_hooks: ``ChatbiRequestGuardrail`` + ``ChatbiPolicyGuardrail``
