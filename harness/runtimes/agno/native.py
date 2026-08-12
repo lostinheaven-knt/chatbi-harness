@@ -278,8 +278,15 @@ class RuntimeNativeRunner:
             return {"status": "error", "error_category": "dbt_bin_unset"}
         profiles_dir = request.get("profiles_dir") or getattr(
             self._deployment, "dbt_profiles_dir", "")
+        # Live-found (2026-08-12): dbt 1.7.19 treats the comma-separated
+        # ``--select a,b,c`` string as ONE selection criterion ("does not
+        # match any nodes" -> Nothing to do, PASS=0). The governed tool
+        # contract keeps the comma-separated string (hook regex
+        # ^[a-z0-9_]+(,[a-z0-9_]+)*$); the argv expands to a space-separated
+        # list (dbt ``--select`` is nargs='+') — one argv element per model.
         argv: list[str] = [
-            str(dbt_bin), operation, "--select", select,
+            str(dbt_bin), operation, "--select",
+            *[name for name in str(select).split(",") if name],
             "--project-dir", str(self._workspace_root),
         ]
         if profiles_dir:

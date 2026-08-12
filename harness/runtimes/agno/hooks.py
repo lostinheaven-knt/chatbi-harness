@@ -1681,9 +1681,28 @@ def _build_domain_hook(
                 database=str(request.get("database", "")),
                 credential_env_name=request.get("credential_env_name"),
             )
+            # Merge base (live-found, 2026-08-12): the DEPLOYMENT-BOUNDARY
+            # local config file is the authority when the request does not
+            # carry the existing local_config — a governed bootstrap must
+            # PRESERVE pre-declared path_bindings (e.g. the fypro Business
+            # Codebase root) instead of wiping them (PORT-001: machine paths
+            # live only in this file). SEC-003: the file holds path bindings
+            # + credential env-var NAMES, never secret values.
+            request_local = request.get("local_config")
+            if not isinstance(request_local, dict):
+                request_local = None
+                local_source = workspace_root / ".claude" \
+                    / "chatbi-harness.local.json"
+                try:
+                    if local_source.is_file():
+                        existing = json.loads(
+                            local_source.read_text(encoding="utf-8"))
+                        if isinstance(existing, dict):
+                            request_local = existing
+                except (OSError, ValueError):
+                    request_local = None
             merged = merge_local_config(
-                request.get("local_config")
-                if isinstance(request.get("local_config"), dict) else None,
+                request_local,
                 path_bindings=request.get("path_bindings"),
                 cli_adapters=request.get("cli_adapters"),
             )
