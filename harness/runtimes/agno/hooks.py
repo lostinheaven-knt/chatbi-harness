@@ -937,15 +937,40 @@ def _build_domain_hook(
             harness_release=harness_release,
         )
         _record(name, "request", entry)
+        scope.request = payload_request
         result = func(**args)
         if isinstance(result, Mapping):
             return {**dict(result), "validated": True}
         return result
 
+    def _request_deny(name: str) -> dict | None:
+        """Analyze-scoped request-first precondition (REQ-001): evidence,
+        candidate, review, crosscheck and query steps are reachable only
+        after chatbi_record_request recorded the request. Deterministic
+        flow-order enforcement — the model follows, the hook enforces
+        (real-model live 2026-08-12: the model skipped record_request and
+        jumped to chatbi_semantic_discover). Returns the deny payload when
+        the request is missing, else None."""
+        if scope.workflow_id != "chatbi-analyze":
+            return None
+        if isinstance(scope.request, Mapping) and scope.request:
+            return None
+        return _deny_raw(
+            name, rule_ids=("REQ-001", "HOOK-004"),
+            reason=("the analysis request must be recorded before any "
+                    "evidence/review/query step (REQ-001)"),
+            recovery=("Call chatbi_record_request first — fill the standard "
+                      "defaults (actor=operator, purpose=decision_support, "
+                      "supported_decision=analysis) and ask the user only "
+                      "for the analysis window / ambiguous entity"))
+
     # --- chatbi_record_evidence -------------------------------------------
     def _record_evidence(name: str, func: Callable[..., Any],
                          args: Mapping[str, Any]) -> Any:
         tier = str(args.get("tier", ""))
+        denied = _request_deny(name)
+        if denied is not None:
+            return denied
         content = args.get("content")
         if tier not in ("T1", "T2", "T3") or content is None:
             return _deny_raw(
@@ -991,6 +1016,9 @@ def _build_domain_hook(
     def _submit_candidate(name: str, func: Callable[..., Any],
                           args: Mapping[str, Any]) -> Any:
         content = args.get("content")
+        denied = _request_deny(name)
+        if denied is not None:
+            return denied
         if content is None:
             return _deny_raw(name, rule_ids=("HOOK-004",),
                              reason="submit_candidate requires content",
@@ -1019,6 +1047,9 @@ def _build_domain_hook(
     def _review(name: str, func: Callable[..., Any],
                 args: Mapping[str, Any]) -> Any:
         from .events import emit_standard_event
+        denied = _request_deny(name)
+        if denied is not None:
+            return denied
 
         # B1 (design-runbook-completion): the run-level BLOCK ceiling is
         # enforced BEFORE the reviewer is invoked — the 4th review attempt
@@ -1143,6 +1174,9 @@ def _build_domain_hook(
     def _crosscheck(name: str, func: Callable[..., Any],
                     args: Mapping[str, Any]) -> Any:
         codebase = str(args.get("codebase") or "")
+        denied = _request_deny(name)
+        if denied is not None:
+            return denied
         business = {}
         if config is not None:
             business = config.get("business_codebases") or {}
@@ -1839,6 +1873,9 @@ def _build_domain_hook(
 
     def _query_source(name: str, func: Callable[..., Any],
                       args: Mapping[str, Any]) -> Any:
+        denied = _request_deny(name)
+        if denied is not None:
+            return denied
         import hashlib
 
         statement = args.get("statement")
@@ -2163,6 +2200,9 @@ def _build_domain_hook(
     # --- chatbi_semantic_discover (Phase 2, module D) ----------------------
     def _semantic_discover(name: str, func: Callable[..., Any],
                            args: Mapping[str, Any]) -> Any:
+        denied = _request_deny(name)
+        if denied is not None:
+            return denied
         import hashlib
 
         metric = args.get("metric")
