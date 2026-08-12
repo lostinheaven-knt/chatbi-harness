@@ -1155,8 +1155,15 @@ def _build_domain_hook(
         if selection.status == "stopped":
             return _deny(name, selection.stop_decision)
         try:
-            evidence = selection.reader.read(
-                alias=codebase, target=str(args.get("query") or ""))
+            if bool(args.get("search", False)):
+                # Phase 2 (module E, design §8.2): search=True ->
+                # literal-substring search over the aliased root
+                # (root-contained; reader.search rejects escapes).
+                evidence = selection.reader.search(
+                    alias=codebase, pattern=str(args.get("query") or ""))
+            else:
+                evidence = selection.reader.read(
+                    alias=codebase, target=str(args.get("query") or ""))
         except Exception as error:  # noqa: BLE001 - fail-closed (HOOK-004)
             return _deny_raw(
                 name, rule_ids=("SRC-002", "HOOK-004"),
