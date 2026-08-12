@@ -67,6 +67,7 @@ from __future__ import annotations
 
 import contextvars
 import json
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -202,6 +203,33 @@ _SKILL_TOOL_RECOVERY = (
 #: derived, candidate-SHA independent), PASS does not reset the budget, and
 #: budgets never carry across runs (multi-turn dialogue semantics).
 REVIEW_BLOCK_LIMIT = 3
+
+#: dbt-run evidence log tail cap (2 KiB, design §6.2 step 5).
+_LOG_TAIL_CAP = 2048
+
+
+def _reviewed_candidate_shas(event_log: Any, run_id: str) -> frozenset[str]:
+    """candidate_sha values of ``review.completed``(PASS) events in the run.
+
+    Phase 2 module B (Q6, technical-design-agno-phase2 §6.2 step 3): the
+    deterministic dbt-execution review prerequisite. Same event-log replay
+    technique as :func:`_review_block_count` (per-run, auditable).
+    """
+    try:
+        events = event_log.replay(run_id).events
+    except Exception:  # noqa: BLE001 - no log -> no reviewed candidate (deny)
+        return frozenset()
+    shas: set[str] = set()
+    for event in events:
+        if event.get("event_type") != "review.completed":
+            continue
+        payload = event.get("payload") or {}
+        if payload.get("status") != "PASS":
+            continue
+        sha = payload.get("candidate_sha")
+        if isinstance(sha, str) and sha:
+            shas.add(sha)
+    return frozenset(shas)
 
 
 def _review_block_count(event_log: Any, run_id: str) -> int:
@@ -1858,6 +1886,194 @@ def _build_domain_hook(
                 "statement_sha256": sha}}
         return out
 
+    # --- chatbi_dbt_draft / chatbi_dbt_execute (Phase 2, module B) ---------
+    def _dbt_draft(name: str, func: Callable[..., Any],
+                   args: Mapping[str, Any]) -> Any:
+        relative_path = args.get("relative_path")
+        content = args.get("content")
+        if not isinstance(relative_path, str) or not relative_path:
+            return _deny_raw(
+                name, rule_ids=("HOOK-004",),
+                reason="dbt_draft requires a non-empty relative_path",
+                recovery="Provide a workspace-relative model path under "
+                         "models/")
+        if not isinstance(content, str):
+            return _deny_raw(
+                name, rule_ids=("HOOK-004",),
+                reason="dbt_draft requires string content",
+                recovery="Provide the model file content as a string")
+        rel = Path(relative_path)
+        # Absolute path: double insurance (the realpath hook already
+        # rejected it, PORT-001).
+        if rel.is_absolute() or any(part == ".." for part in rel.parts):
+            return _deny_raw(
+                name, rule_ids=("SEC-001", "PORT-001"),
+                reason="draft path must be workspace-relative with no .. "
+                       "traversal (PORT-001)",
+                recovery="Use a models/** relative path")
+        if rel.suffix not in (".sql", ".yml"):
+            return _deny_raw(
+                name, rule_ids=("HOOK-004",),
+                reason=f"draft suffix {rel.suffix!r} is not allowed "
+                       "(only .sql model files and .yml schema files)",
+                recovery="Draft a .sql model or a .yml schema definition")
+        if len(content.encode("utf-8")) > 256 * 1024:
+            return _deny_raw(
+                name, rule_ids=("HOOK-004",),
+                reason="draft content exceeds 256 KiB",
+                recovery="Split the model file below 256 KiB")
+        candidate = workspace_root / rel
+        try:
+            if candidate.exists():
+                resolved = candidate.resolve(strict=True)
+            else:
+                resolved = candidate.parent.resolve(strict=True) / candidate.name
+            models_root = (workspace_root / "models").resolve()
+            resolved.relative_to(models_root)
+        except (OSError, ValueError):
+            return _deny_raw(
+                name, rule_ids=("SEC-001", "PORT-001"),
+                reason="draft path escapes the ws/models/ root "
+                       "(fail-closed)",
+                recovery="Use a models/** relative path")
+        sanitized = _sanitize_text(content)
+        # Atomic write (same-dir temp + os.replace) — the file is written
+        # ONLY through this governed tool (Q5: no bare Write surface).
+        candidate.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = candidate.with_name(candidate.name + ".tmp")
+        try:
+            tmp_path.write_text(sanitized, encoding="utf-8")
+            os.replace(tmp_path, candidate)
+        except OSError as error:
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            return _deny_raw(
+                name, rule_ids=("HOOK-004",),
+                reason=f"draft write failed: {type(error).__name__}",
+                recovery="Check the models/ directory permissions and "
+                         "re-draft")
+        sha = compute_candidate_sha(sanitized)
+        entry = EvidenceEntry.create(
+            source_tier="T2", evidence_source="model-candidate",
+            rule_ids=("REV-001", "DOC-004"),
+            payload={"relative_path": str(rel), "content_sha256": sha},
+            runtime_name="agno", native_run_id=scope.run_id or "",
+            harness_release=harness_release,
+        )
+        # model-candidate evidence is NOT appended to the analyze tier chain
+        # (the delivery gate reads only the 4 tier sources); the generic
+        # workflows (maintain-model / bfr) see it via _run_evidence_sources.
+        _record(name, "dbt_draft", entry)
+        out = func(**args)
+        if isinstance(out, Mapping):
+            return {**dict(out), "drafted": True,
+                    "relative_path": str(rel), "content_sha256": sha}
+        return out
+
+    def _dbt_execute(name: str, func: Callable[..., Any],
+                     args: Mapping[str, Any]) -> Any:
+        operation = args.get("operation")
+        select = args.get("select")
+        if operation not in ("run", "test"):
+            return _deny_raw(
+                name, rule_ids=("HOOK-004",),
+                reason=f"dbt operation {operation!r} is not supported "
+                       "(run|test)",
+                recovery="Use operation run or test")
+        if not isinstance(select, str) or not re.fullmatch(
+                r"[a-z0-9_]+(,[a-z0-9_]+)*", select):
+            return _deny_raw(
+                name, rule_ids=("HOOK-004",),
+                reason="dbt select must match ^[a-z0-9_]+(,[a-z0-9_]+)*$ "
+                       "(no +/*/path/metacharacters, argv injection "
+                       "surface)",
+                recovery="Select one or more model names, comma-separated")
+        names = [n for n in select.split(",") if n]
+        models_root = workspace_root / "models"
+        hit_files: list[Path] = []
+        if models_root.is_dir():
+            for model_name in names:
+                hit_files.extend(models_root.rglob(f"{model_name}.sql"))
+        if not hit_files:
+            return _deny_raw(
+                name, rule_ids=("HOOK-004",),
+                reason="select does not hit any ws/models/**/<name>.sql "
+                       "model file",
+                recovery="Draft the model first (chatbi_dbt_draft) or "
+                         "correct the select list")
+        # dbt_bin resolution (Q4): deployment boundary only.
+        dbt_bin = str(getattr(deployment, "dbt_bin", "") or "")
+        if not dbt_bin:
+            return _deny_raw(
+                name, rule_ids=("PORT-001", "SEC-001"),
+                reason="deployment dbt_bin is not configured (fail-closed)",
+                recovery="Configure dbt_bin in the deployment config")
+        allowlist = tuple(getattr(deployment, "cli_allowlist", ()) or ())
+        resolved_dbt = resolve_executable(dbt_bin, allowlist)
+        if resolved_dbt is None:
+            return _deny_raw(
+                name, rule_ids=("PORT-001", "SEC-001"),
+                reason="deployment dbt_bin does not resolve to an "
+                       "allowlisted executable (fail-closed)",
+                recovery="Approve the dbt executable realpath in the "
+                         "deployment cli_allowlist")
+        # Review prerequisite (Q6, REV-001): every hit model file's content
+        # sha must be among this run's review.completed(PASS) candidate
+        # shas — deterministic binding (the draft -> review -> execute chain
+        # is the ONLY execution path; no --force channel).
+        reviewed = _reviewed_candidate_shas(event_log, scope.run_id or "run")
+        for hit in hit_files:
+            file_sha = compute_candidate_sha(hit.read_text(encoding="utf-8"))
+            if file_sha not in reviewed:
+                return _deny_raw(
+                    name, rule_ids=("REV-001",),
+                    reason=f"model {hit.name} has no review PASS for its "
+                           "exact content (deterministic binding, REV-001)",
+                    recovery="Use chatbi_dbt_draft to submit the candidate "
+                             "and complete a chatbi_review PASS before "
+                             "executing")
+        if native_runner is None:
+            return _deny_raw(
+                name, rule_ids=("HOOK-004",),
+                reason="dbt execute requires a wired native runner "
+                       "(fail-closed, FBK-003)",
+                recovery="Wire the runtime native runner before executing")
+        profiles_dir = str(getattr(deployment, "dbt_profiles_dir", "") or "")
+        result = native_runner(
+            "chatbi-maintain-model", "dbt_run" if operation == "run"
+            else "dbt_test",
+            {"operation": operation, "select": select,
+             "profiles_dir": profiles_dir, "dbt_bin": dbt_bin})
+        if not isinstance(result, Mapping) or result.get("status") != "ok":
+            category = (result or {}).get("error_category", "unknown") \
+                if isinstance(result, Mapping) else "unknown"
+            return _deny_raw(
+                name, rule_ids=("HOOK-004",),
+                reason=f"dbt execution failed: {category}",
+                recovery="Read the dbt log and correct the model or "
+                         "environment")
+        log_tail = str(result.get("log_tail", "") or "")[:_LOG_TAIL_CAP]
+        entry = EvidenceEntry.create(
+            source_tier="T2", evidence_source="dbt-run",
+            rule_ids=("REV-001", "PORT-001"),
+            payload={"operation": operation, "select": select,
+                     "returncode": int(result.get("returncode", 0)),
+                     "log_tail": log_tail},
+            runtime_name="agno", native_run_id=scope.run_id or "",
+            harness_release=harness_release,
+        )
+        # dbt-run evidence is not in the analyze tier chain (delivery gate
+        # reads 4 tier sources); generic workflows see it via
+        # _run_evidence_sources.
+        _record(name, "dbt_run" if operation == "run" else "dbt_test", entry)
+        out = func(**args)
+        if isinstance(out, Mapping):
+            return {**dict(out), "dbt": {"returncode": 0,
+                                         "log_tail": log_tail}}
+        return out
+
     # --- chatbi_load_runbook (A1) ------------------------------------------
     def _load_runbook_handler(name: str, func: Callable[..., Any],
                               args: Mapping[str, Any]) -> Any:
@@ -1904,6 +2120,8 @@ def _build_domain_hook(
         "chatbi_bootstrap": _bootstrap,
         "chatbi_load_runbook": _load_runbook_handler,
         "chatbi_query_source": _query_source,
+        "chatbi_dbt_draft": _dbt_draft,
+        "chatbi_dbt_execute": _dbt_execute,
     }
 
     def domain_hook(name: str, func: Callable[..., Any],
