@@ -34,7 +34,7 @@ requirements:
 capabilities:
   realpath_sandbox: required
 prompts:
-  - {name: knowledge_skill, path: skills/chatbi-knowledge/SKILL.md, sha256: "b1b14b8d91cc637760c7ddb7db76d961ebcfcdd8a3ea72b5c38c6416a694a943"}
+  - {name: knowledge_skill, path: skills/chatbi-knowledge/SKILL.md, sha256: "986a5a59fe446569419bd2b7c4205c39f3fdecddf721278f715a68c409104150"}
 tools: {allow: [Read, Grep, Glob, Bash, Edit, Write], deny: [Task, WebFetch, WebSearch]}
 evidence:
   root: ".chatbi"

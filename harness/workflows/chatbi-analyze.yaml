@@ -87,7 +87,7 @@ capabilities:
   realpath_sandbox: required
   tool_allowlist: required
 prompts:
-  - {name: runbook, path: skills/chatbi-runbook/SKILL.md, sha256: "403301714a7d5d9cf95c8b931b66e4253fff6f7c5890618da572505e1dff91bf"}
+  - {name: runbook, path: skills/chatbi-runbook/SKILL.md, sha256: "a6099d5dc3e816e6148d48339188aafcfdcd9283d37f9a5da3b5eea87db3e198"}
   - {name: reviewer, path: agents/adversarial-reviewer.md, sha256: "8a2a6bf0ecbc0ee8143d5539941ce478a3ef535613720ed0a4380907af2c864f"}
 tools: {allow: [Read, Grep, Glob, Bash, Edit, Write], deny: [Task, WebFetch, WebSearch]}
 evidence:

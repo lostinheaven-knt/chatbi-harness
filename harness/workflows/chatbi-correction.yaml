@@ -35,7 +35,7 @@ requirements:
 capabilities:
   realpath_sandbox: optional
 prompts:
-  - {name: runbook, path: skills/chatbi-correction/SKILL.md, sha256: "e6b665142e399c1e5edf6350d8eb4ddcadc49d48e86c9778b0db0e0c431ca84c"}
+  - {name: runbook, path: skills/chatbi-correction/SKILL.md, sha256: "6a7b12932dc668107d2765ecef00fa480d81d72989b7eb9fb1e57dbd3aec1790"}
 tools: {allow: [Read, Grep, Glob, Bash, Edit, Write], deny: [Task, WebFetch, WebSearch]}
 evidence:
   root: ".chatbi"

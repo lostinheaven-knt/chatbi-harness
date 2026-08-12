@@ -5,48 +5,48 @@
   "entries": {
     "skills/chatbi-bootstrap/SKILL.md": {
       "kind": "skill",
-      "sha256": "d22c83cee77b1410fde9b4bc0fd8df3e0835cf7c19ce698aee4bfee3d94a4d58",
-      "size": 15671
+      "sha256": "32d869efcf8377358a9a784807e76541c7936dc47b7808c57e7e3cda105c1272",
+      "size": 15895
     },
     "skills/chatbi-build/SKILL.md": {
       "kind": "skill",
-      "sha256": "1a5ecbe952fb2b842dec9d22bda4074787a5ccb63ab4078515556fbfa170d466",
-      "size": 14448
+      "sha256": "faabc206d37a183b73f926ebfdc62df97577a206a53614adc27e20a2d7a6d590",
+      "size": 14690
     },
     "skills/chatbi-evaluation/SKILL.md": {
       "kind": "skill",
-      "sha256": "762041724eb1e0cfba5cde58644a76cd0f4461adff7fba0de8bc90b42137a0a0",
-      "size": 3950
+      "sha256": "c29ee8c77e42b51bd0c42f26b9246cfa9ac792d014ce37212fc10a85627eb1cb",
+      "size": 4181
     },
     "skills/chatbi-governance/SKILL.md": {
       "kind": "skill",
-      "sha256": "f970aeafe475d94d1b3f2ee56bb48babf6ea9859d8199943c712dd13eea5fe94",
-      "size": 5184
+      "sha256": "cdd5d7c4a4b8a262526e4751b16185194544070d9a60af0372c399c101445305",
+      "size": 5422
     },
     "skills/chatbi-knowledge/SKILL.md": {
       "kind": "skill",
-      "sha256": "b1b14b8d91cc637760c7ddb7db76d961ebcfcdd8a3ea72b5c38c6416a694a943",
-      "size": 3377
+      "sha256": "986a5a59fe446569419bd2b7c4205c39f3fdecddf721278f715a68c409104150",
+      "size": 3602
     },
     "skills/chatbi-init/SKILL.md": {
       "kind": "skill",
-      "sha256": "f080ca3c92d9e717728b2e6b66b3dd082c12309affd012d78bb9a87bd141d3a7",
-      "size": 4017
+      "sha256": "2b83738bc3b563005ae525288e25433bdfc2fc4dc5b645036150ef01ca761c0e",
+      "size": 4252
     },
     "skills/chatbi-correction/SKILL.md": {
       "kind": "skill",
-      "sha256": "e6b665142e399c1e5edf6350d8eb4ddcadc49d48e86c9778b0db0e0c431ca84c",
-      "size": 3121
+      "sha256": "6a7b12932dc668107d2765ecef00fa480d81d72989b7eb9fb1e57dbd3aec1790",
+      "size": 3353
     },
     "skills/chatbi-maintenance/SKILL.md": {
       "kind": "skill",
-      "sha256": "bd09608978ad3661a901203b5e61c7cd26fc300ddd18cda0938f80f484269d0c",
-      "size": 6030
+      "sha256": "9e837a9404ff9cfca6d25e95822e535d5350595d922bdf8b46391821dd1b1266",
+      "size": 6232
     },
     "skills/chatbi-runbook/SKILL.md": {
       "kind": "skill",
-      "sha256": "403301714a7d5d9cf95c8b931b66e4253fff6f7c5890618da572505e1dff91bf",
-      "size": 17471
+      "sha256": "a6099d5dc3e816e6148d48339188aafcfdcd9283d37f9a5da3b5eea87db3e198",
+      "size": 17566
     },
     "agents/adversarial-reviewer.md": {
       "kind": "agent",

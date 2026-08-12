@@ -77,11 +77,15 @@ proof of correctness.
 Keep a concise list of negative experiments (failed retrieval expansion,
 doc bloat, cheap-reviewer substitution) in `docs/harness/negative-experiments.md`
 to avoid repeating them.
-
 ## 对话触发指令（agno 运行形态）
 
-本工作流在 agno runtime 下通过对话触发：agent-ui 选择 chatbi-agno 开新会话（原生路由 /agents/chatbi-agno/runs，SSE 流式返回），输入：
+对话触发语义 = CC 的 skill 触发：用户以自然话语提问，本 runbook 的
+when-to-use 匹配后进入治理流（agent-ui 选择 chatbi-agno 开新会话，原生路由
+/agents/chatbi-agno/runs，SSE 流式返回）。直接说（示例）：
 
-> 执行 chatbi-evaluate：对 <metric> 运行隔离评估。
+> 对收入指标跑一次隔离评估。
+
+模型会为 actor/purpose/supported_decision 填入标准默认值；若它追问缺失信息
+（时间范围/实体等，REQ-001），按提示回复即可。
 
 🧪 模板待逐字验证

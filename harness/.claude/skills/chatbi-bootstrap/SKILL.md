@@ -259,11 +259,15 @@ SCOPE-001, SCOPE-002, SEC-001, SEC-003, PORT-001, SEM-003, DOC-001, HOOK-004.
 No new rule is added; the 46-rule count is unchanged. The `validate_domain_contract`
 gate (`gates.py:170-233`) continues to pass because the contract artifacts are
 not modified by bootstrap.
-
 ## 对话触发指令（agno 运行形态）
 
-本工作流在 agno runtime 下通过对话触发：agent-ui 选择 chatbi-agno 开新会话（原生路由 /agents/chatbi-agno/runs，SSE 流式返回），输入：
+对话触发语义 = CC 的 skill 触发：用户以自然话语提问，本 runbook 的
+when-to-use 匹配后进入治理流（agent-ui 选择 chatbi-agno 开新会话，原生路由
+/agents/chatbi-agno/runs，SSE 流式返回）。直接说（示例）：
 
-> 执行 chatbi-bootstrap 工作流：初始化数仓，目标库 dw_agno。
+> 初始化一下数仓，目标库用 dw_agno。
+
+模型会为 actor/purpose/supported_decision 填入标准默认值；若它追问缺失信息
+（时间范围/实体等，REQ-001），按提示回复即可。
 
 ✅ 真实模型验证通过（2026-08-12）

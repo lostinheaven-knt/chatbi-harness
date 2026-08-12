@@ -42,7 +42,7 @@ requirements:
 capabilities:
   realpath_sandbox: required
 prompts:
-  - {name: evaluation_skill, path: skills/chatbi-evaluation/SKILL.md, sha256: "762041724eb1e0cfba5cde58644a76cd0f4461adff7fba0de8bc90b42137a0a0"}
+  - {name: evaluation_skill, path: skills/chatbi-evaluation/SKILL.md, sha256: "c29ee8c77e42b51bd0c42f26b9246cfa9ac792d014ce37212fc10a85627eb1cb"}
 tools: {allow: [Read, Grep, Glob, Bash, Edit, Write], deny: [Task, WebFetch, WebSearch]}
 evidence:
   root: ".chatbi"

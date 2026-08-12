@@ -92,11 +92,15 @@ any fix. No secrets / absolute paths / PII in the summary (SEC-003/PORT-001).
 FM-STALE, DOC-001/002/004, SRC-002, SCOPE-001/002/003, SEC-001/003, PORT-001,
 SEM-003, META-008, HOOK-001/004, FBK-003. No new rule is added; the 46-rule
 count is unchanged.
-
 ## 对话触发指令（agno 运行形态）
 
-本工作流在 agno runtime 下通过对话触发：agent-ui 选择 chatbi-agno 开新会话（原生路由 /agents/chatbi-agno/runs，SSE 流式返回），输入：
+对话触发语义 = CC 的 skill 触发：用户以自然话语提问，本 runbook 的
+when-to-use 匹配后进入治理流（agent-ui 选择 chatbi-agno 开新会话，原生路由
+/agents/chatbi-agno/runs，SSE 流式返回）。直接说（示例）：
 
-> 执行 chatbi-audit-drift：检查语义层与模型注册表漂移。
+> 检查一下语义层和模型注册表有没有漂移。
+
+模型会为 actor/purpose/supported_decision 填入标准默认值；若它追问缺失信息
+（时间范围/实体等，REQ-001），按提示回复即可。
 
 🧪 模板待逐字验证

@@ -63,11 +63,15 @@ to the domain owner (SRC-002).
 When a model improves, prune obsolete scaffolding and negative-value references
 rather than lengthening prompts to paper over failure. Remove a reference only
 when evidence supports doing so; record the removal as an atomic change.
-
 ## 对话触发指令（agno 运行形态）
 
-本工作流在 agno runtime 下通过对话触发：agent-ui 选择 chatbi-agno 开新会话（原生路由 /agents/chatbi-agno/runs，SSE 流式返回），输入：
+对话触发语义 = CC 的 skill 触发：用户以自然话语提问，本 runbook 的
+when-to-use 匹配后进入治理流（agent-ui 选择 chatbi-agno 开新会话，原生路由
+/agents/chatbi-agno/runs，SSE 流式返回）。直接说（示例）：
 
-> 执行 chatbi-maintain-knowledge：校验并登记指标文档 <metric>。
+> 帮我登记一下收入指标的语义文档。
+
+模型会为 actor/purpose/supported_decision 填入标准默认值；若它追问缺失信息
+（时间范围/实体等，REQ-001），按提示回复即可。
 
 🧪 模板待逐字验证

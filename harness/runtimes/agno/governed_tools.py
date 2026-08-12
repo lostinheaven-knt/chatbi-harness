@@ -387,10 +387,14 @@ def _make_record_request(scope: RunScope) -> Callable[..., dict]:
           actor: str               - who is asking (e.g. "operator")
           purpose: str             - decision purpose (e.g. "decision_support")
           supported_decision: str  - the decision this analysis supports
-        All 7 fields are REQUIRED with no empty values. If the user's
-        question does not provide a field (e.g. no time range), DO NOT guess
-        or send an empty value: first ask the user for the missing
-        information (REQ-001 clarify), then record once you have it."""
+        All 7 fields are REQUIRED with no empty values. Fill the standard
+        defaults when the user's question does not state them:
+        actor=operator, purpose=decision_support,
+        supported_decision=analysis. Ask the user ONLY for what genuinely
+        changes the answer — the analysis window (time_range) when the
+        question has no temporal scope, the entity/segment when ambiguous
+        (REQ-001 clarify). Never guess the window; never send empty
+        values."""
         return _echo("chatbi_record_request", request=dict(request or {}))
 
     return chatbi_record_request

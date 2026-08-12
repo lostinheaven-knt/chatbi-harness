@@ -303,11 +303,15 @@ REQ-001, REQ-002, REQ-003, REQ-004, SEM-001, SEM-002, SEM-003, RAW-001,
 RAW-002, RAW-003, SRC-001, SRC-002, QLT-001, REV-001, REV-002, REV-003,
 ANS-001, ANS-002, ANS-003, SCOPE-001, SCOPE-002, SCOPE-003, SEC-001, SEC-002,
 SEC-003, PORT-001, HOOK-001, HOOK-003, HOOK-004, META-006, META-008, FBK-003.
-
 ## 对话触发指令（agno 运行形态）
 
-本工作流在 agno runtime 下通过对话触发：agent-ui 选择 chatbi-agno 开新会话（原生路由 /agents/chatbi-agno/runs，SSE 流式返回），输入：
+对话触发语义 = CC 的 skill 触发：用户以自然话语提问，本 runbook 的
+when-to-use 匹配后进入治理流（agent-ui 选择 chatbi-agno 开新会话，原生路由
+/agents/chatbi-agno/runs，SSE 流式返回）。直接说（示例）：
 
-> Analysis request: question=<业务问题>; time_range=<YYYY-MM-DD_to_YYYY-MM-DD>; entity=<实体>; segment=<分段>; actor=operator; purpose=decision_support; supported_decision=<决策>
+> 帮我看一下各地区的收入总额。
 
-✅ 结构化模板（flash 模型边界见手册 §3）
+模型会为 actor/purpose/supported_decision 填入标准默认值；若它追问缺失信息
+（时间范围/实体等，REQ-001），按提示回复即可。
+
+✅ 真实模型验证通过（2026-08-12）
