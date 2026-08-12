@@ -303,3 +303,11 @@ REQ-001, REQ-002, REQ-003, REQ-004, SEM-001, SEM-002, SEM-003, RAW-001,
 RAW-002, RAW-003, SRC-001, SRC-002, QLT-001, REV-001, REV-002, REV-003,
 ANS-001, ANS-002, ANS-003, SCOPE-001, SCOPE-002, SCOPE-003, SEC-001, SEC-002,
 SEC-003, PORT-001, HOOK-001, HOOK-003, HOOK-004, META-006, META-008, FBK-003.
+
+## 对话触发指令（agno 运行形态）
+
+本工作流在 agno runtime 下通过对话触发：agent-ui 选择 chatbi-agno 开新会话（原生路由 /agents/chatbi-agno/runs，SSE 流式返回），输入：
+
+> Analysis request: question=<业务问题>; time_range=<YYYY-MM-DD_to_YYYY-MM-DD>; entity=<实体>; segment=<分段>; actor=operator; purpose=decision_support; supported_decision=<决策>
+
+✅ 结构化模板（flash 模型边界见手册 §3）

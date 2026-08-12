@@ -106,3 +106,11 @@ rather than lengthening prompts. Record removals as atomic changes.
 change_kind, target, affected assets (synced/unsynced), evidence_state,
 p0_eval_failed, protected_action, review round, owner, freshness. Observation
 vs interpretation separated (FBK-003).
+
+## 对话触发指令（agno 运行形态）
+
+本工作流在 agno runtime 下通过对话触发：agent-ui 选择 chatbi-agno 开新会话（原生路由 /agents/chatbi-agno/runs，SSE 流式返回），输入：
+
+> 执行 chatbi-maintain-model：为 public.t_plg_creator_agent_session 建 ODS 模型，目标 models/ods/ods_agent_session.sql。
+
+🧪 模板待逐字验证（工具链已验证）

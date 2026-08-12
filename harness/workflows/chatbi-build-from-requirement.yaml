@@ -52,7 +52,7 @@ capabilities:
   realpath_sandbox: required
   tool_allowlist: required
 prompts:
-  - {name: build_skill, path: skills/chatbi-build/SKILL.md, sha256: "18126fde0e89e92a5bf29efb18bf8944adab66d2122bc5615a9498f3642e37c9"}
+  - {name: build_skill, path: skills/chatbi-build/SKILL.md, sha256: "1a5ecbe952fb2b842dec9d22bda4074787a5ccb63ab4078515556fbfa170d466"}
 tools: {allow: [Read, Grep, Glob, Bash, Edit, Write], deny: [Task, WebFetch, WebSearch]}
 evidence:
   root: ".chatbi"

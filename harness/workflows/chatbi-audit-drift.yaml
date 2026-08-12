@@ -45,7 +45,7 @@ requirements:
 capabilities:
   realpath_sandbox: required
 prompts:
-  - {name: governance_skill, path: skills/chatbi-governance/SKILL.md, sha256: "0d9c3a54f69991b2b87fd05dd28de0970e47c65032cf485c43edfea2910b9724"}
+  - {name: governance_skill, path: skills/chatbi-governance/SKILL.md, sha256: "f970aeafe475d94d1b3f2ee56bb48babf6ea9859d8199943c712dd13eea5fe94"}
 tools: {allow: [Read, Grep, Glob, Bash], deny: [Write, Edit]}
 evidence:
   root: ".chatbi"

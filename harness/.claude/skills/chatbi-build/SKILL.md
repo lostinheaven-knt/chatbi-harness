@@ -222,3 +222,11 @@ SEC-001, SEC-003, PORT-001, META-003, META-008, DOC-001, DOC-002, DOC-004,
 HOOK-004, REV-001, ANS-003, FBK-003. No new rule is added; the 46-rule count is
 unchanged. The `validate_domain_contract` gate (`gates.py:170-233`) continues
 to pass because the contract artifacts are not modified by this runbook.
+
+## 对话触发指令（agno 运行形态）
+
+本工作流在 agno runtime 下通过对话触发：agent-ui 选择 chatbi-agno 开新会话（原生路由 /agents/chatbi-agno/runs，SSE 流式返回），输入：
+
+> 执行 chatbi-build-from-requirement：<需求文本>。
+
+🧪 模板待逐字验证

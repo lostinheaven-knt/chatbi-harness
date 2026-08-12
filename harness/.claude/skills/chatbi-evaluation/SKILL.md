@@ -77,3 +77,11 @@ proof of correctness.
 Keep a concise list of negative experiments (failed retrieval expansion,
 doc bloat, cheap-reviewer substitution) in `docs/harness/negative-experiments.md`
 to avoid repeating them.
+
+## 对话触发指令（agno 运行形态）
+
+本工作流在 agno runtime 下通过对话触发：agent-ui 选择 chatbi-agno 开新会话（原生路由 /agents/chatbi-agno/runs，SSE 流式返回），输入：
+
+> 执行 chatbi-evaluate：对 <metric> 运行隔离评估。
+
+🧪 模板待逐字验证

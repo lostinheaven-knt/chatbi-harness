@@ -78,3 +78,11 @@ workflows; the init run itself ends at the report.
 
 REQ-001, PORT-001, SEC-003, SEM-003, HOOK-001, HOOK-004, FBK-003,
 CAP-001/002. No new rule is added.
+
+## 对话触发指令（agno 运行形态）
+
+本工作流在 agno runtime 下通过对话触发：agent-ui 选择 chatbi-agno 开新会话（原生路由 /agents/chatbi-agno/runs，SSE 流式返回），输入：
+
+> 执行 chatbi-init 工作流：诊断当前数仓能力与生产就绪状态。
+
+🧪 模板待逐字验证

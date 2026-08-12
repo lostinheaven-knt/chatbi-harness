@@ -259,3 +259,11 @@ SCOPE-001, SCOPE-002, SEC-001, SEC-003, PORT-001, SEM-003, DOC-001, HOOK-004.
 No new rule is added; the 46-rule count is unchanged. The `validate_domain_contract`
 gate (`gates.py:170-233`) continues to pass because the contract artifacts are
 not modified by bootstrap.
+
+## 对话触发指令（agno 运行形态）
+
+本工作流在 agno runtime 下通过对话触发：agent-ui 选择 chatbi-agno 开新会话（原生路由 /agents/chatbi-agno/runs，SSE 流式返回），输入：
+
+> 执行 chatbi-bootstrap 工作流：初始化数仓，目标库 dw_agno。
+
+✅ 真实模型验证通过（2026-08-12）
