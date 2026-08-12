@@ -117,6 +117,12 @@ class DeploymentConfig:
     #: dbt profiles dir; empty = dbt default (~/.dbt) (env:
     #: CHATBI_DBT_PROFILES_DIR).
     dbt_profiles_dir: str = ""
+    #: Semantic-layer docs dir, relative to the workspace root (default
+    #: "semantic"). The deployer may point it at e.g. "docs/metrics"; the
+    #: semantic discovery scans this dir for metric-definition docs. The
+    #: bootstrap conversation may override it per-workspace (written into
+    #: .claude/chatbi-harness.local.json, read fresh by semantic_discover).
+    semantic_docs_dir: str = "semantic"
 
     def model_config(self, model_ref: str) -> ModelConfig:
         try:
@@ -133,6 +139,7 @@ def _validate_phase2_fields(
     *,
     run_mode: str,
     cli_allowlist: tuple[str, ...],
+    semantic_docs_dir: str,
     warehouse_db: str,
 ) -> None:
     """Startup fail-closed validation of the Phase-2 deployment fields
@@ -150,6 +157,17 @@ def _validate_phase2_fields(
         raise RuntimeError(
             f"deployment run_mode {run_mode!r} is not supported "
             f"(production|test|example) (fail-closed, MR-005)"
+        )
+    if not isinstance(semantic_docs_dir, str) or not semantic_docs_dir:
+        raise RuntimeError(
+            f"deployment semantic_docs_dir must be a non-empty relative "
+            "path (fail-closed, MR-005)"
+        )
+    if semantic_docs_dir.startswith(("/", "\\")) or ".." in semantic_docs_dir.split("/"):
+        raise RuntimeError(
+            f"deployment semantic_docs_dir {semantic_docs_dir!r} must be a "
+            "workspace-relative path, not absolute or parent-escaping "
+            "(fail-closed, PORT-001)"
         )
     if not _WAREHOUSE_DB_RE.fullmatch(warehouse_db):
         raise RuntimeError(
@@ -192,6 +210,7 @@ def _phase2_from_env(os_env: Mapping[str, str]) -> dict[str, str | tuple[str, ..
         "warehouse_db": "dw_agno",
         "dbt_bin": os_env.get(ENV_DBT_BIN, "") or "",
         "dbt_profiles_dir": os_env.get(ENV_DBT_PROFILES_DIR, "") or "",
+        "semantic_docs_dir": "semantic",
     }
 
 
@@ -238,6 +257,7 @@ def load_deployment_config(
         _validate_phase2_fields(
             run_mode=phase2["run_mode"],
             cli_allowlist=phase2["cli_allowlist"],
+            semantic_docs_dir=phase2["semantic_docs_dir"],
             warehouse_db=phase2["warehouse_db"],
         )
         return DeploymentConfig(
@@ -251,6 +271,7 @@ def load_deployment_config(
             warehouse_db=phase2["warehouse_db"],
             dbt_bin=phase2["dbt_bin"],
             dbt_profiles_dir=phase2["dbt_profiles_dir"],
+            semantic_docs_dir=phase2.get("semantic_docs_dir", "semantic"),
         )
 
     path = Path(config_path)
@@ -334,6 +355,7 @@ def load_deployment_config(
     dbt_bin = _env_or(data, "dbt_bin", (ENV_DBT_BIN,))
     dbt_profiles_dir = _env_or(data, "dbt_profiles_dir",
                                (ENV_DBT_PROFILES_DIR,))
+    semantic_docs_dir = data.get("semantic_docs_dir", "semantic") or "semantic"
     raw_allowlist = data.get("cli_allowlist")
     if raw_allowlist is None:
         cli_allowlist: tuple[str, ...] = ()
@@ -358,6 +380,7 @@ def load_deployment_config(
     _validate_phase2_fields(
         run_mode=run_mode,
         cli_allowlist=cli_allowlist,
+        semantic_docs_dir=semantic_docs_dir,
         warehouse_db=warehouse_db,
     )
 

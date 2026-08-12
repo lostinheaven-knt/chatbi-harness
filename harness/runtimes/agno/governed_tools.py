@@ -520,13 +520,18 @@ def _make_bootstrap(scope: RunScope) -> Callable[..., dict]:
         inventory -> scaffold).
 
         The spec REQUIRES the mysql connection fields (kernel
-        build_mysql_adapter_spec). Use the test-environment defaults:
+        build_mysql_adapter_spec). Use the test-environment defaults ONLY
+        when the user does not specify them:
         {"host": "127.0.0.1", "port": 3306, "user": "root",
          "database": "public", "target_warehouse_db": "dw_agno"}
-        Never put a password value in the spec (SEC-003): the local
-        no-password root omits the credential field entirely; otherwise
-        pass only the env var NAME (e.g. "MYSQL_PWD"). The mysql executable
-        path is deployment-bound and is not part of the spec."""
+        When the user states different connection values, a different
+        source database, or where the semantic-layer docs live
+        ("semantic_docs": "<relative dir>"), use THE USER'S values — they
+        are persisted into the local config and take effect. Never put a
+        password value in the spec (SEC-003): the local no-password root
+        omits the credential field entirely; otherwise pass only the env
+        var NAME (e.g. "MYSQL_PWD"). The mysql executable path is
+        deployment-bound and is not part of the spec."""
         return _echo("chatbi_bootstrap", spec=dict(spec or {}))
 
     return chatbi_bootstrap

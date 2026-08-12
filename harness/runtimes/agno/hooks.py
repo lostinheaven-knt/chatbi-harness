@@ -1749,6 +1749,13 @@ def _build_domain_hook(
             cli_adapters_merged = merged.get("cli_adapters") or {}
             cli_adapters_merged["mysql"] = dict(spec)
             merged["cli_adapters"] = cli_adapters_merged
+            # Semantic-layer docs dir (conversation-configurable, agno 验收
+            # 2026-08-12): when the user specifies where the semantic-layer
+            # docs live during initialization, persist it in the local
+            # config — semantic_discover reads it fresh (same pattern as
+            # query_source reading the mysql adapter).
+            if request.get("semantic_docs"):
+                merged["semantic_docs_dir"] = str(request["semantic_docs"])
             local_target = workspace_root / ".claude" \
                 / "chatbi-harness.local.json"
             try:
@@ -2267,7 +2274,22 @@ def _build_domain_hook(
                     "content": description,
                     "metric": entry_metric})
         else:
-            semantic_root = workspace_root / "semantic"
+            # Semantic docs dir resolution (agno 验收 2026-08-12): local
+            # config override (written by the bootstrap conversation) first,
+            # then the deployment field, then the default "semantic".
+            docs_rel = str(getattr(deployment, "semantic_docs_dir", "")
+                           or "semantic")
+            try:
+                local_source = workspace_root / ".claude" \
+                    / "chatbi-harness.local.json"
+                if local_source.is_file():
+                    local = json.loads(local_source.read_text(
+                        encoding="utf-8"))
+                    docs_rel = str(local.get("semantic_docs_dir")
+                                   or docs_rel)
+            except (OSError, ValueError):
+                pass
+            semantic_root = workspace_root / docs_rel
             if semantic_root.is_dir():
                 for path in sorted(semantic_root.rglob("*.md")):
                     try:
