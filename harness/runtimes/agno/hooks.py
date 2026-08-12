@@ -1749,13 +1749,6 @@ def _build_domain_hook(
             cli_adapters_merged = merged.get("cli_adapters") or {}
             cli_adapters_merged["mysql"] = dict(spec)
             merged["cli_adapters"] = cli_adapters_merged
-            # Semantic-layer docs dir (conversation-configurable, agno 验收
-            # 2026-08-12): when the user specifies where the semantic-layer
-            # docs live during initialization, persist it in the local
-            # config — semantic_discover reads it fresh (same pattern as
-            # query_source reading the mysql adapter).
-            if request.get("semantic_docs"):
-                merged["semantic_docs_dir"] = str(request["semantic_docs"])
             local_target = workspace_root / ".claude" \
                 / "chatbi-harness.local.json"
             try:
@@ -1830,6 +1823,45 @@ def _build_domain_hook(
                                         "(fail-closed)",
                                  recovery="Inspect the scaffold step and "
                                           "re-run the bootstrap chain")
+            # Business Codebase configuration (agno 验收 2026-08-12,
+            # user-directed — sessionB §1.4 parity): the initialization may
+            # declare Business Codebases (alias -> declaration) into the
+            # SHARED config (.claude/chatbi-harness.json — the alias
+            # declaration is shared policy, SEM-003), while the path
+            # bindings go to the LOCAL config (merged above — machine paths
+            # live only there, PORT-001). The user's conversation statement
+            # is the operator action (same as the CC operator editing
+            # chatbi-harness.json); only the stated aliases are merged,
+            # everything else is preserved.
+            codebases_raw = request.get("business_codebases")
+            codebase_aliases: list[str] = []
+            if isinstance(codebases_raw, Mapping) and codebases_raw:
+                try:
+                    shared_target = workspace_root / ".claude" \
+                        / "chatbi-harness.json"
+                    shared = {}
+                    if shared_target.is_file():
+                        parsed = json.loads(shared_target.read_text(
+                            encoding="utf-8"))
+                        if isinstance(parsed, dict):
+                            shared = parsed
+                    existing_cbs = shared.get("business_codebases") or {}
+                    merged_cbs = dict(existing_cbs)
+                    merged_cbs.update(dict(codebases_raw))
+                    shared["business_codebases"] = merged_cbs
+                    tmp = shared_target.with_name(shared_target.name + ".tmp")
+                    tmp.write_text(json.dumps(
+                        shared, ensure_ascii=False, sort_keys=True),
+                        encoding="utf-8")
+                    os.replace(tmp, shared_target)
+                    codebase_aliases = sorted(merged_cbs)
+                except OSError as error:
+                    return _deny_raw(
+                        name, rule_ids=("HOOK-004",),
+                        reason=f"shared config persist failed: "
+                               f"{type(error).__name__} (fail-closed)",
+                        recovery="Check the .claude directory permissions "
+                                 "and re-run the bootstrap chain")
         except GateError as error:
             return _deny(name, error.decision)
         except Exception as error:  # noqa: BLE001 - fail-closed
@@ -1840,7 +1872,8 @@ def _build_domain_hook(
             source_tier="T2", evidence_source="bootstrap-inventory",
             rule_ids=("PORT-001", "SEC-003", "SEM-003"),
             payload={"source_database": inventory.source_database,
-                     "table_count": len(inventory.tables)},
+                     "table_count": len(inventory.tables),
+                     "business_codebases": codebase_aliases},
             runtime_name="agno", native_run_id=scope.run_id or "",
             harness_release=harness_release,
         )
@@ -2274,21 +2307,13 @@ def _build_domain_hook(
                     "content": description,
                     "metric": entry_metric})
         else:
-            # Semantic docs dir resolution (agno 验收 2026-08-12): local
-            # config override (written by the bootstrap conversation) first,
-            # then the deployment field, then the default "semantic".
+            # Semantic docs dir: system-defined (deployment field, default
+            # "semantic") — not conversation-configurable (agno 验收
+            # 2026-08-12, user-directed: the semantic layer location is a
+            # system convention; the Business Codebase is the configurable
+            # reference surface).
             docs_rel = str(getattr(deployment, "semantic_docs_dir", "")
                            or "semantic")
-            try:
-                local_source = workspace_root / ".claude" \
-                    / "chatbi-harness.local.json"
-                if local_source.is_file():
-                    local = json.loads(local_source.read_text(
-                        encoding="utf-8"))
-                    docs_rel = str(local.get("semantic_docs_dir")
-                                   or docs_rel)
-            except (OSError, ValueError):
-                pass
             semantic_root = workspace_root / docs_rel
             if semantic_root.is_dir():
                 for path in sorted(semantic_root.rglob("*.md")):

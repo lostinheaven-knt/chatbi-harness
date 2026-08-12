@@ -524,14 +524,21 @@ def _make_bootstrap(scope: RunScope) -> Callable[..., dict]:
         when the user does not specify them:
         {"host": "127.0.0.1", "port": 3306, "user": "root",
          "database": "public", "target_warehouse_db": "dw_agno"}
-        When the user states different connection values, a different
-        source database, or where the semantic-layer docs live
-        ("semantic_docs": "<relative dir>"), use THE USER'S values — they
-        are persisted into the local config and take effect. Never put a
-        password value in the spec (SEC-003): the local no-password root
-        omits the credential field entirely; otherwise pass only the env
-        var NAME (e.g. "MYSQL_PWD"). The mysql executable path is
-        deployment-bound and is not part of the spec."""
+        When the user states different connection values or a different
+        source database, use THE USER'S values — they are persisted into
+        the local config and take effect. The semantic-layer docs location
+        is system-defined (deployment semantic_docs_dir), not
+        conversation-configurable. Business Codebases ARE
+        conversation-configurable at initialization: pass
+        "business_codebases": {"<alias>": {"description": "...",
+        "path_ref": "<alias>_root", "read_mode": "adapter",
+        "git_history": "metadata_only"}} (written to the shared config)
+        plus "path_bindings": {"<alias>_root": "<absolute path>"} (written
+        to the local config — the only place machine paths live, PORT-001).
+        Never put a password value in the spec (SEC-003): the local
+        no-password root omits the credential field entirely; otherwise
+        pass only the env var NAME (e.g. "MYSQL_PWD"). The mysql
+        executable path is deployment-bound and is not part of the spec."""
         return _echo("chatbi_bootstrap", spec=dict(spec or {}))
 
     return chatbi_bootstrap
