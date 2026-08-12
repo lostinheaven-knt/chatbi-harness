@@ -429,14 +429,36 @@ class HookOutcome:
     payload: Mapping[str, Any] = field(default_factory=dict)
 
 
-def _sanitize_args(value: Any) -> Any:
-    if isinstance(value, str):
-        return _sanitize_text(value)
-    if isinstance(value, dict):
-        return {key: _sanitize_args(val) for key, val in value.items()}
-    if isinstance(value, list):
-        return [_sanitize_args(item) for item in value]
-    return value
+def _sanitize_args(value: Any, *, tool_name: str = "") -> Any:
+    """Recursively sanitize tool args (SEC-003 redaction of secrets and
+    machine paths).
+
+    Exception (agno 验收 2026-08-12, user-directed): the bootstrap spec's
+    ``path_bindings`` values are THE sanctioned machine-path carrier — they
+    are persisted into the local config (chatbi-harness.local.json,
+    PORT-001: machine paths live only there) and must NOT be redacted to
+    [REDACTED_PATH], which would persist a useless placeholder. The
+    exemption is scoped to ``chatbi_bootstrap`` only; every other tool's
+    args keep full redaction (SEC-003).
+    """
+    preserve = tool_name == "chatbi_bootstrap"
+
+    def _walk(item: Any, in_bindings: bool = False) -> Any:
+        if isinstance(item, str):
+            return item if in_bindings else _sanitize_text(item)
+        if isinstance(item, dict):
+            return {
+                key: _walk(
+                    val,
+                    in_bindings=(in_bindings
+                                 or (preserve and key == "path_bindings")))
+                for key, val in item.items()
+            }
+        if isinstance(item, list):
+            return [_walk(entry, in_bindings=in_bindings) for entry in item]
+        return item
+
+    return _walk(value)
 
 
 def _is_absolute_path(value: str) -> bool:
@@ -613,7 +635,7 @@ def build_tool_hooks(
             scope.workflow_id = (
                 getattr(run_context, "workflow_id", "") or scope.workflow_id
             )
-        clean = _sanitize_args(dict(args))
+        clean = _sanitize_args(dict(args), tool_name=name)
         return func(**clean)
 
     # -- layer 2: allowlist -------------------------------------------------
