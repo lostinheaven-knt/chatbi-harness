@@ -513,7 +513,13 @@ def _make_bootstrap(scope: RunScope) -> Callable[..., dict]:
     def chatbi_bootstrap(spec: dict) -> dict[str, Any]:
         """Bootstrap a Warehouse from a MySQL spec (kernel spec builder ->
         resolve_executable allowlist -> CLI native runner -> source
-        inventory -> scaffold)."""
+        inventory -> scaffold).
+
+        The mysql connection details (host, port, user, credential,
+        executable path) come from the DEPLOYMENT configuration — the user
+        does not provide them and you must not ask for them. The spec only
+        needs the high-level fields, e.g.:
+        {"source_database": "public", "target_warehouse_db": "dw_agno"}."""
         return _echo("chatbi_bootstrap", spec=dict(spec or {}))
 
     return chatbi_bootstrap
