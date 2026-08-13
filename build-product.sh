@@ -57,8 +57,11 @@ cp "$DEV/harness/.claude/agents/adversarial-reviewer.md" "$DEST/.claude/agents/"
 # --- skills: all chatbi-* skills ---
 rsync -a "$DEV/harness/.claude/skills/" "$DEST/.claude/skills/"
 
-# --- docs: domain-model + harness/ only (NOT dev docs) ---
+# --- docs: domain-model + harness/ + agno acceptance manual (NOT dev docs) ---
 cp "$DEV/harness/docs/chatbi-harness-domain-model.md" "$DEST/docs/"
+# agno-target acceptance manual (f6f0d67: harness/docs/agno-acceptance-manual.md
+# ships with the product; the earlier build missed it — one-line gap fix)
+cp "$DEV/harness/docs/agno-acceptance-manual.md" "$DEST/docs/"
 rsync -a "$DEV/harness/docs/harness/" "$DEST/docs/harness/"
 
 # --- root files ---
