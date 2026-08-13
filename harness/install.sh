@@ -14,7 +14,7 @@
 #                 .claude/chatbi-harness.json + examples,
 #                 .claude/agents|fixtures|rules|schemas|skills,
 #                 packages/, runtimes/agno, workflows/, prompts/,
-#                 conformance/, docs/, README.md
+#                 conformance/, docs/, README.md, launch_agno.py
 #
 # In --target all mode the installer also verifies a Python 3.10+ executable
 # outside the workspace boundary (PORT-001) and prints the exact
@@ -136,6 +136,7 @@ if [ "$TARGET_MODE" = "all" ]; then
   [ -d "$SRC/conformance" ]  && cp -R "$SRC/conformance"  "$TARGET_ABS/"
   cp "$SRC/CLAUDE.md" "$SRC/CONTEXT.md" "$SRC/e2e-state.py" "$TARGET_ABS/"
   [ -f "$SRC/README.md" ] && cp "$SRC/README.md" "$TARGET_ABS/README.md"
+  [ -f "$SRC/launch_agno.py" ] && cp "$SRC/launch_agno.py" "$TARGET_ABS/"
 else
   # agno trimmed install: skip the CC execution surface (commands/hooks/lib/
   # settings.json/schedules, runtimes/claude_code, CLAUDE.md/CONTEXT.md/
@@ -166,10 +167,12 @@ else
   [ -d "$SRC/prompts" ]      && cp -R "$SRC/prompts"      "$TARGET_ABS/"
   [ -d "$SRC/conformance" ]  && cp -R "$SRC/conformance"  "$TARGET_ABS/"
   [ -f "$SRC/README.md" ] && cp "$SRC/README.md" "$TARGET_ABS/README.md"
+  [ -f "$SRC/launch_agno.py" ] && cp "$SRC/launch_agno.py" "$TARGET_ABS/"
 fi
 
 # defensive: strip any pycache that rode along, and ensure the launcher is +x
 find "$TARGET_ABS/.claude" -name '__pycache__' -type d -prune -exec rm -rf {} + 2>/dev/null || true
+chmod +x "$TARGET_ABS/launch_agno.py" 2>/dev/null || true
 # hooks are only installed in --target all mode; the guard keeps the agno
 # trimmed install silent about a dir that must not exist there.
 if [ -d "$TARGET_ABS/.claude/hooks" ] && [ ! -x "$TARGET_ABS/.claude/hooks/session_diagnose" ]; then
@@ -181,10 +184,11 @@ if [ "$TARGET_MODE" = "agno" ]; then
   echo "  ok: agno trimmed install: .claude/{agents,fixtures,rules,schemas,skills,"
   echo "      chatbi-harness.json,chatbi-harness.example.json,chatbi-harness.local.example.json}"
   echo "      packages/ runtimes/agno workflows/ prompts/ conformance/ docs/ README.md"
+  echo "      launch_agno.py"
   echo "      (skipped CC surface: .claude/{commands,hooks,lib,schedules,settings.json},"
   echo "      runtimes/claude_code, CLAUDE.md, CONTEXT.md, e2e-state.py)"
 else
-  echo "  ok: copied .claude/ packages/ runtimes/ workflows/ prompts/ conformance/ docs/ CLAUDE.md CONTEXT.md e2e-state.py README.md"
+  echo "  ok: copied .claude/ packages/ runtimes/ workflows/ prompts/ conformance/ docs/ CLAUDE.md CONTEXT.md e2e-state.py README.md launch_agno.py"
 fi
 
 # ---------------------------------------------------------------------------
@@ -292,8 +296,9 @@ if [ "$TARGET_MODE" = "agno" ]; then
   echo "    # deployment-boundary machine paths (PORT-001) go in deployment.json"
   echo "    # (agno_main / cli_allowlist / warehouse_db) and"
   echo "    # .claude/chatbi-harness.local.json - see docs/agno-acceptance-manual.md"
-  echo "    # for the operator runbook. Launch the governed service with your agno"
-  echo "    # venv python, e.g.:"
+  echo "    # for the operator runbook. The launcher ships with this install"
+  echo "    # (launch_agno.py); launch the governed service with your agno venv"
+  echo "    # python, e.g.:"
   echo "    #   CHATBI_AGNO_MAIN=<agno-main-root> <agno-venv>/bin/python launch_agno.py"
 fi
 echo ""

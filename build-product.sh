@@ -68,7 +68,11 @@ rsync -a "$DEV/harness/docs/harness/" "$DEST/docs/harness/"
 cp "$DEV/harness/CLAUDE.md" "$DEV/harness/CONTEXT.md" "$DEV/harness/e2e-state.py" "$DEST/"
 cp "$DEV/harness/product-README.md" "$DEST/README.md"
 cp "$DEV/harness/install.sh" "$DEST/install.sh"
-chmod +x "$DEST/install.sh"
+# agno service launcher (G2: ships with the product — deployment-boundary
+# bindings resolve via CHATBI_AGNO_MAIN env / deployment.json agno_main,
+# fail-closed; no machine path or secret in the file itself)
+cp "$DEV/harness/launch_agno.py" "$DEST/launch_agno.py"
+chmod +x "$DEST/install.sh" "$DEST/launch_agno.py"
 
 # --- validate ---
 echo "=== product built. Validating... ==="
@@ -90,8 +94,11 @@ echo "=== product built. Validating... ==="
      runtimes.agno.probe, runtimes.agno.evidence_index, runtimes.agno.events, \
      runtimes.agno.approvals, runtimes.agno.reviewer, runtimes.agno.config, \
      runtimes.agno.governed_tools, runtimes.agno.prompt_loader, \
-     runtimes.agno.packager, runtimes.agno.observability, runtimes.agno.auth; \
+     runtimes.agno.packager, runtimes.agno.observability, runtimes.agno.auth, \
+     runtimes.agno.deployment_bindings; \
      print('import OK')" )
+# launcher syntax check (compile only — importing would resolve bindings)
+python3 -B -m py_compile "$DEST/launch_agno.py" && echo "launch_agno.py compile OK"
 echo "--- canary sweep (no machine path / secret) ---"
 # grep -rnIE: POSIX grep (always present under /bin/sh). rg is not a binary in
 # some envs (zsh function) and its absence was masked by 2>/dev/null + || true,
