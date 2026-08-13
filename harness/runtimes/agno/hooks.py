@@ -69,6 +69,7 @@ from __future__ import annotations
 
 import contextvars
 import json
+import logging
 import os
 import re
 from dataclasses import dataclass, field
@@ -1101,13 +1102,18 @@ def _build_domain_hook(
             payload={"candidate_sha": candidate_sha},
         )
         def _fail(rule_ids: tuple[str, ...], reason: str,
-                  recovery: str) -> dict[str, Any]:
+                  recovery: str,
+                  findings_detail: list[Mapping[str, Any]] | None = None,
+                  ) -> dict[str, Any]:
             entry = EvidenceEntry.create(
                 source_tier="T2", evidence_source="candidate-review",
                 rule_ids=("REV-001", "REV-002", "REV-003"),
                 payload={"status": "BLOCKED", "round": scope.review_round,
                          "candidate_sha": candidate_sha,
-                         "findings": list(rule_ids), "reason": reason},
+                         "findings": (findings_detail
+                                      if findings_detail is not None
+                                      else list(rule_ids)),
+                         "reason": reason},
                 runtime_name="agno", native_run_id=scope.run_id or "",
                 harness_release=harness_release,
             )
@@ -1161,10 +1167,22 @@ def _build_domain_hook(
         blocking = [f for f in findings
                     if isinstance(f, Mapping) and f.get("severity") == "block"]
         if verdict.get("status") != "PASS" or blocking:
+            # Persist the reviewer's actual blocking findings (reason /
+            # recovery / refs) in the review evidence — the deny reason the
+            # model sees stays generic, but a blocked delivery is now
+            # diagnosable from the workspace alone (live-found 2026-08-13:
+            # session b8749f1a, review BLOCKED with only rule_ids persisted).
+            findings_detail = [
+                {k: f.get(k) for k in
+                 ("severity", "rule_ids", "reason", "recovery",
+                  "evidence_refs") if f.get(k) is not None}
+                for f in blocking
+            ] or None
             return _fail(_RULES_NOT_PASS,
                          "Review verdict is not a clean PASS for the frozen "
                          "candidate",
-                         "Address every blocking finding and re-review")
+                         "Address every blocking finding and re-review",
+                         findings_detail=findings_detail)
         # PASS: record the auditable review evidence.
         entry = EvidenceEntry.create(
             source_tier="T2", evidence_source="candidate-review",
@@ -2485,6 +2503,12 @@ def _build_domain_hook(
             # Any kernel GateError escapes a handler -> fail-closed deny.
             return _deny(name, error.decision)
         except Exception as error:  # noqa: BLE001 - HOOK-004 fail-closed
+            # The model-facing reason stays type-only (SEC-003: no raw
+            # statement/path leaks); the full traceback goes to the operator
+            # log so a "governance hook failed" is diagnosable post-hoc
+            # (live-found 2026-08-13: session b8749f1a, FileNotFoundError x3
+            # with no persisted detail).
+            logging.exception("governance hook %s failed (HOOK-004)", name)
             return _deny_raw(
                 name, rule_ids=("HOOK-004",),
                 reason=f"governance hook failed: {type(error).__name__}",
