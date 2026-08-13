@@ -33,11 +33,14 @@ CC 版验收覆盖完整数仓生命周期：**数仓初始化 → 业务 db →
 
 ## 1. 环境准备（零起点）
 
+> **占位符**（机器路径只出现在部署边界，PORT-001；下文所有命令按此替换）：
+> `<AGNO_VENV>` = agno 2.6.22 venv 根（如 `/Users/<user>/workspace/agno-main/.venv`）；`<AGENT_UI_ROOT>` = agent-ui 检出根；`<DEV_REPO>` = chatbi-cc-dev 开发检出根；`<FYPRO_DOCS_ROOT>` = fypro_all_app/docs（Business Codebase 根）。
+
 | 项 | 要求 | 检查命令 |
 |---|---|---|
-| agno 环境 | agno 2.6.22 venv | `/Users/admin/Downloads/workspace/agno-main/.venv/bin/python -c "import agno; print(agno.__version__)"` |
-| DeepSeek 凭据 | 测试环境 url/key | `cat /Users/admin/Downloads/workspace/agno-main/.venv/config.json` |
-| 前端 | agent-ui（Next.js） | `/Users/admin/Downloads/workspace/agent-ui` 存在 |
+| agno 环境 | agno 2.6.22 venv | `<AGNO_VENV>/bin/python -c "import agno; print(agno.__version__)"` |
+| DeepSeek 凭据 | 测试环境 url/key | `cat <AGNO_VENV>/config.json` |
+| 前端 | agent-ui（Next.js） | `<AGENT_UI_ROOT>` 存在 |
 | 代码 | chatbi-cc-dev main | `git log --oneline -1` → 33a96db（或更新） |
 | ⏳ Phase 2 额外 | MySQL 127.0.0.1:3306 + venv_dbt + fypro 业务库 | 见 §4.1 |
 
@@ -45,11 +48,11 @@ CC 版验收覆盖完整数仓生命周期：**数仓初始化 → 业务 db →
 
 ```sh
 # 终端 1 后端（自动读 config.json 凭据；--keep 保留治理状态）
-cd /Users/admin/Downloads/workspace/chatbi-cc-dev
-/Users/admin/Downloads/workspace/agno-main/.venv/bin/python .scratch/agno-demo/serve.py --keep
+cd <DEV_REPO>
+<AGNO_VENV>/bin/python .scratch/agno-demo/serve.py --keep
 
 # 终端 2 前端
-cd /Users/admin/Downloads/workspace/agent-ui && pnpm dev   # http://localhost:3000
+cd <AGENT_UI_ROOT> && pnpm dev   # http://localhost:3000
 ```
 
 连通性：`curl -s http://127.0.0.1:7777/agents` → 预期 `chatbi-agno`。
@@ -192,7 +195,7 @@ rm -rf .scratch/agno-demo/ws/.chatbi .scratch/agno-demo/ws/.chatbi-runtime \
 
 **对话指令（自然话语——skill 触发，2026-08-12 真实模型验证通过）**：
 
-> 初始化数仓：源库用 public，目标库 dw_agno。业务参考文档在 /Users/admin/Downloads/workspace/fypro_all_app/docs，别名 fypro_docs。
+> 初始化数仓：源库用 public，目标库 dw_agno。业务参考文档在 <FYPRO_DOCS_ROOT>，别名 fypro_docs。
 
 **可配置项**（自然语言指定即生效，实测验证）：
 - **mysql 连接**（host/port/user）→ 写入 local config cli_adapters.mysql argv
@@ -410,11 +413,11 @@ rm -rf .scratch/agno-demo/ws/.chatbi .scratch/agno-demo/ws/.chatbi-runtime \
        .scratch/agno-demo/ws/models .scratch/agno-demo/ws/target \
        .scratch/agno-demo/ws/logs .scratch/agno-demo/ws/dbt_packages
 # 恢复 local config 至部署前状态（cli_adapters: {}，path_bindings 仅 fypro_docs_root）
-printf '{"path_bindings": {"fypro_docs_root": "/Users/admin/Downloads/workspace/fypro_all_app/docs"}}' \
+printf '{"path_bindings": {"fypro_docs_root": "<FYPRO_DOCS_ROOT>"}}' \
   > .scratch/agno-demo/ws/.claude/chatbi-harness.local.json
 
 # 2) 跑全旅程（agno venv python；服务可不用，工具链直驱独立跑）
-/Users/admin/Downloads/workspace/agno-main/.venv/bin/python -B \
+<AGNO_VENV>/bin/python -B \
   .scratch/agno-demo/live_full_journey_acceptance.py
 ```
 
@@ -441,7 +444,7 @@ printf '{"path_bindings": {"fypro_docs_root": "/Users/admin/Downloads/workspace/
 **补测复现**：
 ```sh
 # 服务在线即可（serve.py --keep）
-/Users/admin/Downloads/workspace/agno-main/.venv/bin/python -B \
+<AGNO_VENV>/bin/python -B \
   .scratch/agno-demo/drive_turn.py <session_id> "<一轮指令>" .scratch/agno-demo/fj-conv-tN
 # 审批 seam：curl -X POST :7777/approvals/<id>/resolve -d '{"status":"approved","resolved_by":"owner@example.com"}'
 #       然后：curl -X POST :7777/agents/chatbi-agno/runs/<run_id>/continue -F "tools=" -F "stream=true"
