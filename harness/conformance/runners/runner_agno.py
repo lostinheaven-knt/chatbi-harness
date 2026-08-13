@@ -175,7 +175,10 @@ def _stub_reviewer_runner(mode: str):
         if mode == "blocked":
             verdict["status"] = "BLOCKED"
             verdict["findings"] = [{
-                "severity": "block", "rule_ids": ["REV-003"],
+                # _RULES_NOT_PASS canonical set (the hook surfaces these in
+                # the BLOCKED review evidence; the frozen golden asserts them)
+                "severity": "block",
+                "rule_ids": ["REV-001", "REV-003", "HOOK-001"],
                 "evidence_refs": [f"evidence:scenario:{ctx['run_id']}"],
                 "reason": "delivery gate requirement not met",
                 "recovery": "resolve the blocking finding and re-review",
@@ -331,7 +334,14 @@ def _normalize_result(
     tier_chain = [(e["source_tier"], e["content_sha256"]) for e in chain]
 
     # final_status (ADR-002: only the delivery gate decides completion).
-    review_rules = set(tuple(review.get("findings", ())) if review else ())
+    # findings may be legacy rule-id strings or detail dicts (2aa8c26:
+    # BLOCKED reviews persist the reviewer's blocking findings as dicts).
+    review_rules: set[str] = set()
+    for finding in (review.get("findings", ()) if review else ()) or ():
+        if isinstance(finding, dict):
+            review_rules.update(str(r) for r in (finding.get("rule_ids") or ()))
+        elif isinstance(finding, str):
+            review_rules.add(finding)
     no_evidence_at_all = not evidence_rows
     tool_blocked_rules: set[str] = set()
     for event in events:

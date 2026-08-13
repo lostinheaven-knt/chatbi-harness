@@ -2830,11 +2830,17 @@ class ChatbiDeliveryGuardrail(BaseGuardrail):
             payload = entry.get("payload") or {}
             # A BLOCKED review carries the failure-mode rule_ids in its
             # findings (the review hook writes them there); PASS reviews fall
-            # back to the entry's declared rule set.
-            findings = payload.get("findings") or []
-            rule_ids = tuple(
-                f for f in findings if isinstance(f, str)
-            ) or tuple(entry.get("rule_ids", ()))
+            # back to the entry's declared rule set. Findings may be legacy
+            # rule-id strings or detail dicts (2aa8c26) — collect both.
+            collected: list[str] = []
+            for finding in payload.get("findings") or []:
+                if isinstance(finding, dict):
+                    collected.extend(
+                        str(r) for r in (finding.get("rule_ids") or ()))
+                elif isinstance(finding, str):
+                    collected.append(finding)
+            rule_ids = tuple(dict.fromkeys(collected)) or tuple(
+                entry.get("rule_ids", ()))
             review = {
                 "status": payload.get("status"),
                 "round": payload.get("round"),
