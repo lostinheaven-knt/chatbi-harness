@@ -1954,6 +1954,24 @@ def _build_domain_hook(
                        "T1 queries come only from the semantic layer "
                        "(SEM-001)",
                 recovery="Use tier T2 (curated) or T3 (raw exploration)")
+        models, public, source_db = _load_query_allowlists(workspace_root)
+        if not models and not public:
+            # Initialization precondition (2026-08-13, live-found on session
+            # fd20fccd): on a from-zero workspace the model flailed through
+            # file exploration after per-table denials instead of routing to
+            # init. Fail the whole query early with ONE sharp recovery — the
+            # analyze entry must discover "not initialized" itself, without
+            # relying on the operator's wording.
+            return _deny_raw(
+                name, rule_ids=("SEM-001", "HOOK-004"),
+                reason=("no governed query surface: the warehouse is not "
+                        "initialized (no source inventory, no dw_agno "
+                        "models) (SEM-001)"),
+                recovery=("Do not query, and do not use raw file exploration "
+                          "as a substitute. Tell the operator the warehouse "
+                          "is not initialized, and propose initialization "
+                          "with chatbi-bootstrap — wait for the operator's "
+                          "confirmation before continuing."))
         invalid = validate_readonly_select(statement)
         if invalid is not None:
             return _deny_raw(
@@ -1968,7 +1986,6 @@ def _build_domain_hook(
                 name, rule_ids=("SEC-001", "HOOK-004"),
                 reason="no table reference detected in the statement",
                 recovery="Reference a governed table explicitly (FROM/JOIN)")
-        models, public, source_db = _load_query_allowlists(workspace_root)
         warehouse_db = str(getattr(deployment, "warehouse_db",
                                    "dw_agno")).lower()
         union = models | public

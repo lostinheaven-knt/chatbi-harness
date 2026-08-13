@@ -45,8 +45,8 @@
     },
     "skills/chatbi-runbook/SKILL.md": {
       "kind": "skill",
-      "sha256": "a6099d5dc3e816e6148d48339188aafcfdcd9283d37f9a5da3b5eea87db3e198",
-      "size": 17566
+      "sha256": "32c630e50484a4ac6321aabb321d3c5933589bcd11c3f34677c1ac89c2891e50",
+      "size": 18486
     },
     "agents/adversarial-reviewer.md": {
       "kind": "agent",

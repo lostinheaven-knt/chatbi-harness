@@ -370,6 +370,8 @@ ls .scratch/agno-demo/ws/.chatbi/runs/<session_id>/   # inventory-merge / draft 
 > 驱动方式：**工具链直驱**（确定性脚本 + 真实 mysql 127.0.0.1:3306 + 真实 venv_dbt 1.7.19 + 真实治理链 tool_hooks 六层/guardrails/kernel），review 用 stub 判定（REV-001 SHA 绑定 + review.schema 校验走真实 kernel）。真实模型（deepseek-v4-flash）遵循度不足的登记边界同 §1.1/§3；S2 交接为**脚本阶段点**（对话语义登记，不消耗真实模型）。
 > 详细报告：`docs/test-report-agno-full-journey-live-v1.md`。
 
+> **2026-08-13 机制强化（免「建数仓」措辞依赖）**：步骤 1 的「发现未初始化」不再只靠模型自主联想——analyze 入口增加**确定性初始化前置**（无 source inventory 且无 dw 模型 → `chatbi_query_source` 整体拒绝，recovery 指向「向操作员提案 chatbi-bootstrap 并等待确认」）+ runbook step 0 + preamble 第 5 条提示。从零 ws 上直接问分析问题（不带「建数仓」措辞）也会被导向初始化提案。live-found：session fd20fccd（模型绕过 recovery 乱翻文件、终局被交付门拦）。
+
 **场景步骤表**（每步：动作 / 预期 / 判定；run `live-fj-boot` + `live-fj`）：
 
 | 步骤 | 动作 | 预期 | 判定（live 断言摘录） |
@@ -459,6 +461,7 @@ printf '{"path_bindings": {"fypro_docs_root": "<FYPRO_DOCS_ROOT>"}}' \
 | "Something went wrong while streaming... C002" | agent 输出无证据链（未走治理流） | 按 recovery 补充缺失字段（如 time_range）后重问；或改用 3.1 的结构化消息模板 |
 | agent 逐字段反复追问 | deepseek-v4-flash 过度澄清（模型能力边界） | 结构化消息一次性给全 7 字段；或换更强模型 |
 | agent 输出散文计划被拦 | 非问句结尾（交接契约） | 重问（带字段）；已登记的模型遵循度边界 |
+| 从零 ws 直接问分析问题：查询被拦、模型乱翻文件、终局交付门拦截 | analyze 入口无受治查询表面（无 inventory / 无 dw 模型），模型未自主转初始化（2026-08-13 session fd20fccd） | 已修（确定性初始化前置）：query_source 整体拒绝 + recovery 指向「提案 chatbi-bootstrap 等操作员确认」；runbook step 0 + preamble 第 5 条同步；升级代码后重启服务 |
 | run 长时间不结束 | 旧代码无 REVIEW_BLOCK_LIMIT | 确认 ≥720ec47 |
 | HITL 审批恢复失败 | agno 2.6.22 × DeepSeek tool_call_id 不匹配（已登记）；2026-08-12 纯对话补测确认精确机理：OS approvals API 可解析 approved，但 continue 后 ChatBI approval_verify_hook 的 `run_subject`（contextvar，由 pre-hook 设置）为空 → SEC-003 fail-closed，registry_append 无法执行 | OS 层可解析 approved；受保护工具执行暂停点登记为人工步骤；等 agno 升级或手工续跑 |
 | 服务启动报错 | 端口占用/状态损坏 | `kill $(lsof -ti:7777)`；必要时不带 --keep 重启 |

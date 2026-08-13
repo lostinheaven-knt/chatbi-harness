@@ -16,7 +16,7 @@ deterministic primitive exists in `.claude/lib/chatbi_harness/evidence.py`, this
 runbook names it; the actual offline exercise is Task 06 (`test_e2e.py`) and the
 real semantic-layer / adapter / reviewer runtime is a Cycle 5 exit gate.
 
-## 0. Sources this runbook binds to
+## Sources this runbook binds to
 
 - Request contract: `.claude/schemas/request.schema.json` (7 required fields).
 - Review verdict contract: `.claude/schemas/review.schema.json` (8 required
@@ -29,6 +29,24 @@ real semantic-layer / adapter / reviewer runtime is a Cycle 5 exit gate.
 - Independent reviewer: `.claude/agents/adversarial-reviewer.md`.
 - Gates: `.claude/hooks/subagent_review_gate.py` (`SubagentStop`),
   `.claude/hooks/stop_gate.py` (`Stop`).
+
+## 0. Step 0 - Initialization precondition (SEM-001, before any query)
+
+**Goal:** analysis needs a governed query surface. Before any
+`chatbi_query_source` (T2/T3), verify the warehouse is initialized:
+
+- `.chatbi/bootstrap/source_inventory.json` exists (inventoried source
+  tables), or
+- `.chatbi/model_registry.json` / `models/**/*.sql` exist (dw models).
+
+If NEITHER exists, the warehouse is **NOT initialized**. Do not query and do
+not substitute raw file exploration. STOP the analysis and tell the operator:
+the warehouse needs initialization first; propose `chatbi-bootstrap` (source
+db + target dw) and wait for the operator's confirmation before continuing.
+The deterministic hook denies `chatbi_query_source` with the same recovery -
+follow it. Never wait for the user to phrase it as "build a warehouse"; the
+absence of a governed surface IS the signal (live-found on the from-zero
+analyze entry, 2026-08-13).
 
 ## 1. Step 1 - Clarify (Layer 1, REQ-001/002/003/004)
 
