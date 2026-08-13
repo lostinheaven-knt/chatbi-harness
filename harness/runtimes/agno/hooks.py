@@ -1178,10 +1178,27 @@ def _build_domain_hook(
                   "evidence_refs") if f.get(k) is not None}
                 for f in blocking
             ] or None
+            # The model cannot fix what it cannot see: surface the
+            # reviewer's blocking findings in the deny recovery so the next
+            # candidate addresses them (live-found 2026-08-13: session
+            # b8749f1a — the model re-submitted blindly because the only
+            # message was "Address every blocking finding", while the
+            # reviewer's actual finding was the unapplied is_deleted
+            # exclusion).
+            findings_text = "; ".join(
+                "[{}] {} — {}".format(
+                    ",".join(str(r) for r in (f.get("rule_ids") or ())),
+                    str(f.get("reason") or ""),
+                    str(f.get("recovery") or "")).strip(" —")
+                for f in blocking)
+            recovery = ("Address every blocking finding and re-review. "
+                        "Blocking findings: " + findings_text)[:1500] \
+                if findings_text else \
+                "Address every blocking finding and re-review"
             return _fail(_RULES_NOT_PASS,
                          "Review verdict is not a clean PASS for the frozen "
                          "candidate",
-                         "Address every blocking finding and re-review",
+                         recovery,
                          findings_detail=findings_detail)
         # PASS: record the auditable review evidence.
         entry = EvidenceEntry.create(
@@ -3148,7 +3165,19 @@ class ChatbiDeliveryGuardrail(BaseGuardrail):
                         "the user with the blocking findings and their "
                         "recovery actions; do not re-review in this run")
                 else:
-                    recovery = "Address every blocking finding and re-review"
+                    findings = review.get("findings") or []
+                    findings_text = "; ".join(
+                        "[{}] {} — {}".format(
+                            ",".join(str(r) for r in
+                                     (f.get("rule_ids") or ())),
+                            str(f.get("reason") or ""),
+                            str(f.get("recovery") or "")).strip(" —")
+                        for f in findings if isinstance(f, dict))
+                    recovery = (
+                        "Address every blocking finding and re-review. "
+                        "Blocking findings: " + findings_text)[:1500] \
+                        if findings_text else \
+                        "Address every blocking finding and re-review"
             else:
                 final_candidate = self._final_candidate(run_output)
                 try:

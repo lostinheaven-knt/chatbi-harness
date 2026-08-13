@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -98,18 +99,26 @@ def read_state_with_fallback(
 
 
 def write_state(workspace_root: Path, session_id: str, name: str, data: Any) -> Path:
-    """Atomically write a run state JSON file (temp + rename). Creates parents.
-    Used by the governed flow (agent) to persist business state keyed by the
-    session_id, so the corresponding gate can read it on the real CC event."""
+    """Atomically write a run state JSON file (unique temp + rename).
+
+    Creates parents. Used by the governed flow (agent) to persist business
+    state keyed by the session_id, so the corresponding gate can read it on
+    the real CC event.
+
+    The temp file is UNIQUE per write (mkstemp): concurrent writers for the
+    SAME target path — e.g. parallel tool calls in one agno run recording
+    the same evidence name — must not share a temp name. A shared temp makes
+    every writer after the first os.replace fail with FileNotFoundError
+    (live-found 2026-08-13: session b8749f1a, five concurrent
+    chatbi_query_source calls -> five ENOENT, the model saw "governance
+    hook failed" instead of the query result). Last-writer-wins for the
+    target content is unchanged.
+    """
     path = state_path(workspace_root, session_id, name)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = json.dumps(data, ensure_ascii=False, sort_keys=True).encode("utf-8")
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    fd = os.open(
-        tmp,
-        os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
-        0o600,
-    )
+    fd, tmp = tempfile.mkstemp(
+        dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
     try:
         with os.fdopen(fd, "wb") as handle:
             handle.write(payload)
