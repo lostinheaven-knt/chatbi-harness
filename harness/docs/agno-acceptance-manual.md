@@ -464,6 +464,7 @@ printf '{"path_bindings": {"fypro_docs_root": "<FYPRO_DOCS_ROOT>"}}' \
 | 从零 ws 直接问分析问题：查询被拦、模型乱翻文件、终局交付门拦截 | analyze 入口无受治查询表面（无 inventory / 无 dw 模型），模型未自主转初始化（2026-08-13 session fd20fccd） | 已修（确定性初始化前置）：query_source 整体拒绝 + recovery 指向「提案 chatbi-bootstrap 等操作员确认」；runbook step 0 + preamble 第 5 条同步；升级代码后重启服务 |
 | run 长时间不结束 | 旧代码无 REVIEW_BLOCK_LIMIT | 确认 ≥720ec47 |
 | HITL 审批恢复失败 | agno 2.6.22 × DeepSeek tool_call_id 不匹配（已登记）；2026-08-12 纯对话补测确认精确机理：OS approvals API 可解析 approved，但 continue 后 ChatBI approval_verify_hook 的 `run_subject`（contextvar，由 pre-hook 设置）为空 → SEC-003 fail-closed，registry_append 无法执行 | OS 层可解析 approved；受保护工具执行暂停点登记为人工步骤；等 agno 升级或手工续跑 |
+| 已知 seam（2026-08-14 登记）：CC target 对 verdict 的 `reviewer_context_hash` 无语义校验 | agno target 已加 kernel 校验（M1，main @ 9f94d5b），CC target 的 review gate（subagent_review_gate）仍仅 schema 校验——两目标间的一致性差异 | 本轮决策（用户确认）：CC 侧不扩展，登记为 seam；如需对齐再走流程 |
 | 服务启动报错 | 端口占用/状态损坏 | `kill $(lsof -ti:7777)`；必要时不带 --keep 重启 |
 
 ## 6. 环境重置（验收后收尾）
