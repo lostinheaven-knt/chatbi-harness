@@ -77,6 +77,7 @@ _GOVERNANCE_PROTOCOL = (
     "low confidence, when data counts as stale) are deployment policy "
     "configured and confirmed by the domain owner — never invent them "
     "yourself (EVAL-004).\n"
+    "{coverage_policy_line}\n"
     "6. Freeze the final answer with chatbi_submit_candidate, then call "
     "chatbi_review — the answer is delivered only after the independent "
     "reviewer passes (REV-001).\n"
@@ -265,8 +266,33 @@ def build_governed_agent(
             harness_release=harness_release, run_scope=scope,
             ir_workflows=ir_workflows),
     ])
+    # coverage_policy (2026-08-14): inject the deployment's owner-confirmed
+    # quantitative coverage thresholds (EVAL-004) into the preamble. Config
+    # explicit values win; when no threshold is configured, the unconfigured
+    # wording applies and the model must not invent thresholds. ``config``
+    # is None on the conformance stub path -> unconfigured wording.
+    coverage_line = (
+        "No deployment coverage policy is configured: apply coverage "
+        "disclosure without inventing thresholds (EVAL-004).")
+    if config is not None:
+        try:
+            policy = (config.get("governance") or {}).get("coverage_policy") or {}
+        except Exception:  # noqa: BLE001 - fail-open to the unconfigured wording
+            policy = {}
+        ratio = policy.get("low_confidence_missing_ratio")
+        days = policy.get("stale_after_days")
+        owner = policy.get("owner")
+        owner = owner.strip() if isinstance(owner, str) else ""
+        if (ratio is not None or days is not None) and owner:
+            coverage_line = (
+                "Deployment coverage policy (owner-confirmed by {owner}): "
+                "missing-days ratio >= {ratio} -> confidence=low; data "
+                "max-date older than {days} days -> stale.").format(
+                    owner=owner,
+                    ratio=ratio if ratio is not None else 0.2,
+                    days=days if days is not None else 7)
     instructions = [
-        _GOVERNANCE_PROTOCOL,
+        _GOVERNANCE_PROTOCOL.format(coverage_policy_line=coverage_line),
         *prompt_assets.instructions,
         _routing_table(ir_workflows),
     ]

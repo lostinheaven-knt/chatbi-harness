@@ -309,6 +309,43 @@ def _validate_effective_data(data: dict[str, Any]) -> None:
             reason="A release threshold has no explicit threshold owner",
             recovery="Configure threshold_owner or leave release_threshold unset",
         )
+    # coverage_policy (2026-08-14): quantitative coverage thresholds are
+    # deployment policy confirmed by the domain owner (EVAL-004) — an
+    # explicit threshold without an owner is rejected fail-closed; value
+    # ranges are checked here because the schema subset has no `maximum`.
+    coverage_policy = data["governance"].get("coverage_policy") or {}
+    ratio = coverage_policy.get("low_confidence_missing_ratio")
+    days = coverage_policy.get("stale_after_days")
+    policy_owner = coverage_policy.get("owner")
+    policy_owner = policy_owner.strip() if isinstance(policy_owner, str) else ""
+    if (ratio is not None or days is not None) and not policy_owner:
+        raise _config_gate_error(
+            rule_ids=("EVAL-004", "HOOK-004"),
+            evidence_ref="config:governance",
+            reason="A coverage policy threshold has no explicit policy owner",
+            recovery="Configure coverage_policy.owner or leave the thresholds unset",
+        )
+    if ratio is not None and (
+        not isinstance(ratio, (int, float))
+        or isinstance(ratio, bool)
+        or ratio < 0
+        or ratio > 1
+    ):
+        raise _config_gate_error(
+            rule_ids=("HOOK-004",),
+            evidence_ref="config:governance",
+            reason="coverage_policy.low_confidence_missing_ratio must be within [0, 1]",
+            recovery="Set a ratio between 0 and 1 or leave it unset",
+        )
+    if days is not None and (
+        not isinstance(days, int) or isinstance(days, bool) or days < 0
+    ):
+        raise _config_gate_error(
+            rule_ids=("HOOK-004",),
+            evidence_ref="config:governance",
+            reason="coverage_policy.stale_after_days must be a non-negative integer",
+            recovery="Set a non-negative integer or leave it unset",
+        )
     adapters = data["adapters"]
     adapter_ids = adapters["semantic"] + adapters["query"]
     fixture_ids = [item for item in adapter_ids if item.startswith("fixture:")]

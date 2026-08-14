@@ -46,7 +46,12 @@
       "core_finance",
       "raw_exploration",
       "freshness_unknown"
-    ]
+    ],
+    "coverage_policy": {
+      "low_confidence_missing_ratio": 0.2,
+      "stale_after_days": 7,
+      "owner": "domain-owner"
+    }
   },
   "evaluation": {
     "release_threshold": null,

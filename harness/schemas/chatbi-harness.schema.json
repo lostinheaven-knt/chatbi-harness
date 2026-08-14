@@ -27,15 +27,38 @@
     "runtime"
   ],
   "properties": {
-    "schema_version": {"type": "integer", "enum": [1]},
-    "description": {"type": "string", "description": "Optional human-readable comment. Sanctioned outlet for notes; use this instead of ad-hoc _-prefixed fields, which the strict schema rejects."},
+    "schema_version": {
+      "type": "integer",
+      "enum": [
+        1
+      ]
+    },
+    "description": {
+      "type": "string",
+      "description": "Optional human-readable comment. Sanctioned outlet for notes; use this instead of ad-hoc _-prefixed fields, which the strict schema rejects."
+    },
     "workspace": {
       "type": "object",
-      "required": ["id", "root", "allow_candidate_writes", "protected_actions"],
+      "required": [
+        "id",
+        "root",
+        "allow_candidate_writes",
+        "protected_actions"
+      ],
       "properties": {
-        "id": {"type": "string", "pattern": "^[a-z][a-z0-9_-]{1,62}$"},
-        "root": {"type": "string", "enum": ["."]},
-        "allow_candidate_writes": {"type": "boolean"},
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]{1,62}$"
+        },
+        "root": {
+          "type": "string",
+          "enum": [
+            "."
+          ]
+        },
+        "allow_candidate_writes": {
+          "type": "boolean"
+        },
         "protected_actions": {
           "type": "array",
           "uniqueItems": true,
@@ -54,22 +77,49 @@
     },
     "business_codebases": {
       "type": "object",
-      "propertyNames": {"pattern": "^[a-z][a-z0-9_-]{1,62}$"},
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9_-]{1,62}$"
+      },
       "additionalProperties": {
         "type": "object",
-        "required": ["description", "path_ref", "read_mode", "git_history"],
+        "required": [
+          "description",
+          "path_ref",
+          "read_mode",
+          "git_history"
+        ],
         "properties": {
-          "description": {"type": "string", "pattern": "\\S"},
-          "path_ref": {"type": "string", "pattern": "^[a-z][a-z0-9_-]{1,62}$"},
-          "read_mode": {"type": "string", "enum": ["adapter"]},
-          "git_history": {"type": "string", "enum": ["metadata_only"]}
+          "description": {
+            "type": "string",
+            "pattern": "\\S"
+          },
+          "path_ref": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_-]{1,62}$"
+          },
+          "read_mode": {
+            "type": "string",
+            "enum": [
+              "adapter"
+            ]
+          },
+          "git_history": {
+            "type": "string",
+            "enum": [
+              "metadata_only"
+            ]
+          }
         },
         "additionalProperties": false
       }
     },
     "adapters": {
       "type": "object",
-      "required": ["semantic", "query", "fixture_enabled"],
+      "required": [
+        "semantic",
+        "query",
+        "fixture_enabled"
+      ],
       "properties": {
         "semantic": {
           "type": "array",
@@ -87,7 +137,9 @@
             "pattern": "^(?:managed|cli|fixture):[a-z][a-z0-9_-]{1,62}$"
           }
         },
-        "fixture_enabled": {"type": "boolean"}
+        "fixture_enabled": {
+          "type": "boolean"
+        }
       },
       "additionalProperties": false
     },
@@ -100,19 +152,40 @@
         "high_risk_classes"
       ],
       "properties": {
-        "pii_policy_ref": {"type": ["string", "null"]},
+        "pii_policy_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "restricted_disclosure": {
-          "type": ["string", "null"],
-          "enum": ["sql_only", null]
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "sql_only",
+            null
+          ]
         },
         "owners": {
           "type": "object",
-          "required": ["default_domain_owner", "metrics"],
+          "required": [
+            "default_domain_owner",
+            "metrics"
+          ],
           "properties": {
-            "default_domain_owner": {"type": ["string", "null"]},
+            "default_domain_owner": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "metrics": {
               "type": "object",
-              "additionalProperties": {"type": "string"}
+              "additionalProperties": {
+                "type": "string"
+              }
             }
           },
           "additionalProperties": false
@@ -130,45 +203,110 @@
               "freshness_unknown"
             ]
           }
+        },
+        "coverage_policy": {
+          "type": "object",
+          "properties": {
+            "low_confidence_missing_ratio": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "stale_after_days": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "owner": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
     },
     "evaluation": {
       "type": "object",
-      "required": ["release_threshold", "threshold_owner", "require_p0_slices"],
+      "required": [
+        "release_threshold",
+        "threshold_owner",
+        "require_p0_slices"
+      ],
       "properties": {
-        "release_threshold": {"type": ["number", "null"], "minimum": 0},
-        "threshold_owner": {"type": ["string", "null"]},
-        "require_p0_slices": {"type": "boolean"}
+        "release_threshold": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "threshold_owner": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "require_p0_slices": {
+          "type": "boolean"
+        }
       },
       "additionalProperties": false
     },
     "runtime": {
       "type": "object",
-      "required": ["evidence_root", "fail_if_sandbox_unavailable"],
+      "required": [
+        "evidence_root",
+        "fail_if_sandbox_unavailable"
+      ],
       "properties": {
-        "evidence_root": {"type": "string", "enum": [".chatbi"]},
-        "fail_if_sandbox_unavailable": {"type": "boolean"}
+        "evidence_root": {
+          "type": "string",
+          "enum": [
+            ".chatbi"
+          ]
+        },
+        "fail_if_sandbox_unavailable": {
+          "type": "boolean"
+        }
       },
       "additionalProperties": false
     },
     "path_bindings": {
       "type": "object",
-      "propertyNames": {"pattern": "^[a-z][a-z0-9_-]{1,62}$"},
-      "additionalProperties": {"type": "string"}
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9_-]{1,62}$"
+      },
+      "additionalProperties": {
+        "type": "string"
+      }
     },
     "cli_adapters": {
       "type": "object",
-      "propertyNames": {"pattern": "^[a-z][a-z0-9_-]{1,62}$"},
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9_-]{1,62}$"
+      },
       "additionalProperties": {
         "type": "object",
-        "required": ["argv", "credential_env_names"],
+        "required": [
+          "argv",
+          "credential_env_names"
+        ],
         "properties": {
           "argv": {
             "type": "array",
             "minItems": 1,
-            "items": {"type": "string", "pattern": "\\S"}
+            "items": {
+              "type": "string",
+              "pattern": "\\S"
+            }
           },
           "credential_env_names": {
             "type": "array",
