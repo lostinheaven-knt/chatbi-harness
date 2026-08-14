@@ -1149,6 +1149,20 @@ def _build_domain_hook(
                          f"review verdict violates review.schema.json: "
                          f"{error.decision.reason}",
                          "Correct the payload to match the declared schema")
+        # M1 (review-binding): kernel semantic verification — the verdict
+        # must echo the injected governing-context hash (carried back from
+        # the tool body as expected_context_hash). Mismatch = the verdict
+        # was produced under a different review context (HOOK-001/REV-002).
+        expected_context_hash = (
+            (result or {}).get("expected_context_hash")
+            if isinstance(result, Mapping) else None)
+        if (expected_context_hash is not None
+                and verdict.get("reviewer_context_hash") != expected_context_hash):
+            return _fail(
+                ("HOOK-001", "REV-002"),
+                "reviewer verdict does not echo the injected "
+                "governing-context hash (REV-002)",
+                "Re-run the review with the current governing context")
         if verdict.get("candidate_sha") != candidate_sha:
             return _fail(
                 _RULES_STALE_SHA,
@@ -2847,6 +2861,11 @@ class ChatbiDeliveryGuardrail(BaseGuardrail):
                 "candidate_sha": payload.get("candidate_sha"),
                 "rule_ids": rule_ids,
                 "reason": payload.get("reason", ""),
+                # M2 (review-binding): carry the findings detail so the
+                # terminal gate can surface a sanitized summary. Previously
+                # dropped here, the findings-enriched recovery below was
+                # dead code (live-found: terminal message stayed generic).
+                "findings": payload.get("findings") or [],
             }
         return review
 
@@ -3172,13 +3191,13 @@ class ChatbiDeliveryGuardrail(BaseGuardrail):
                         "recovery actions; do not re-review in this run")
                 else:
                     findings = review.get("findings") or []
-                    findings_text = "; ".join(
+                    findings_text = _sanitize_text("; ".join(
                         "[{}] {} — {}".format(
                             ",".join(str(r) for r in
                                      (f.get("rule_ids") or ())),
                             str(f.get("reason") or ""),
                             str(f.get("recovery") or "")).strip(" —")
-                        for f in findings if isinstance(f, dict))
+                        for f in findings if isinstance(f, dict)))
                     recovery = (
                         "Address every blocking finding and re-review. "
                         "Blocking findings: " + findings_text)[:1500] \

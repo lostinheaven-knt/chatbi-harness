@@ -203,7 +203,9 @@ current candidate SHA clears both gates.
    `date_timezone`, `denominator`, `sample_bias`, `quality`,
    `observation_vs_interpretation`, `disclosure`, `provenance`), `findings`
    (each with `severity`/`rule_ids`/`evidence_refs`/`reason`/`recovery`),
-   `reviewer_context_hash`, `sanitized_output`.
+   `reviewer_context_hash` (the verdict must **echo the harness-injected
+   governing-context hash verbatim** — never recompute or replace it; the
+   kernel verifies equality, HOOK-001/REV-002), `sanitized_output`.
 4. **Enforce the review gate.** The `subagent_review_gate`
    (`SubagentStop`) admits delivery only when:
    - `status="PASS"`, AND

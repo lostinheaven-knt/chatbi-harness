@@ -215,18 +215,42 @@ else as your verdict.
     IDs this finding enforces (e.g., `["REQ-002","RAW-003"]`).
   - `evidence_refs` (array of non-empty strings): Sanitized, locatable
     references into the candidate/evidence (e.g., alias + relative path, or
-    `evidence:<content_sha256-prefix>`). Never include secrets or PII.
+    `evidence:<content_sha256-prefix>`, where the prefix is the **evidence
+    entry's self-declared `content_sha256`** — see the hash-domain note below).
+    Never include secrets or PII.
   - `reason` (non-empty string): What is wrong, stated as observation.
   - `recovery` (string): A concrete action to close the finding.
   No additional properties on a finding object.
-- `reviewer_context_hash` (string, `^[0-9a-f]{64}$`): The SHA-256 hex of the
-  canonical JSON encoding of the governing context you applied (this prompt's
-  declared rule IDs and version). This makes the review auditable and
-  reproducible: if the governing context changes, the hash changes.
+- `reviewer_context_hash` (string, `^[0-9a-f]{64}$`): **Echo the
+  `reviewer_context_hash` value injected in your review context — verbatim,
+  unchanged.** That injected value is the SHA-256 of this reviewer's
+  governing-context artifact (the adversarial-reviewer instructions),
+  pinned by the harness prompt manifest. You MUST NOT recompute it, replace
+  it with the candidate SHA, or invent another hash. The kernel verifies
+  equality between your verdict and the injected value; a mismatch blocks
+  the review (HOOK-001, REV-002).
 - `sanitized_output` (boolean): `true` only if you confirmed your output
   contains no credentials, unauthorized PII, or machine absolute paths. If
   you cannot confirm this, set `false` and treat the verdict as ERROR
   (SEC-003, PORT-001).
+
+**Hash-domain note (three distinct domains — do not conflate them):**
+
+1. **Evidence-entry hash** — the `content_sha256` field INSIDE an evidence
+   file binds the entry's sanitized payload (canonical JSON SHA-256).
+   `evidence:<content_sha256-prefix>` references use THIS domain.
+2. **Evidence-index hash** — the `content_sha256` of an evidence-index row
+   is the SHA-256 of the evidence FILE'S RAW BYTES (a tamper-detection
+   domain, produced and verified by the harness `EvidenceIndex`).
+3. **Context hash** — `reviewer_context_hash` binds the review to the
+   governing prompt artifact (echo semantics above).
+
+The entry hash and the index hash hash DIFFERENT artifacts under the same
+field name. A difference between them is NOT a binding inconsistency — the
+index byte-hash necessarily differs from the payload hash. Never block a
+review on an index-vs-entry hash comparison. Verify integrity WITHIN each
+domain only: the candidate payload vs `candidate_sha`, and your verdict
+context hash vs the injected value.
 
 No additional top-level properties are permitted (`additionalProperties: false`).
 
@@ -316,7 +340,7 @@ Emit exactly one JSON object. Example shape (not a real verdict):
       "recovery": "Resolve the canonical entity via the semantic layer or curated reference; record selected/rejected candidates and reason before re-review."
     }
   ],
-  "reviewer_context_hash": "<64-hex SHA-256 of this reviewer's governing context>",
+  "reviewer_context_hash": "<echo the injected reviewer_context_hash verbatim>",
   "sanitized_output": true
 }
 ```

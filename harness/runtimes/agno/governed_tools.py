@@ -658,6 +658,7 @@ def build_governed_tools(
     clock: Any = None,
     run_scope: RunScope | None = None,   # shared tools<->hooks run identity
     runbook_registry: Mapping[str, Any] | None = None,   # A1: IR+manifest 派生
+    reviewer_context_hash: str = "",     # governing-context hash (M1, review-binding)
 ) -> tuple[list[Callable[..., dict]], dict[str, ToolSpec]]:
     """Build the agent-visible governance tool functions (dumb pass-throughs).
 
@@ -686,6 +687,7 @@ def build_governed_tools(
         "chatbi_review": build_review_tool(
             reviewer_agent=reviewer_agent, reviewer_runner=reviewer_runner,
             run_scope=scope,
+            reviewer_context_hash=reviewer_context_hash,
         ),
         "chatbi_crosscheck": _make_crosscheck(scope),
         "chatbi_build_plan": _make_build_plan(scope),

@@ -169,7 +169,10 @@ def _stub_reviewer_runner(mode: str):
             "status": "PASS",
             "coverage": {k: "pass" for k in _COVERAGE_KEYS},
             "findings": [],
-            "reviewer_context_hash": "d" * 64,
+            # M1 (review-binding): echo the harness-injected governing-context
+            # hash (kernel now verifies equality); the fallback keeps legacy
+            # direct-call fixtures readable.
+            "reviewer_context_hash": ctx.get("reviewer_context_hash") or "d" * 64,
             "sanitized_output": True,
         }
         if mode == "blocked":

@@ -17,6 +17,12 @@ file content when present (run_id/session_id/workflow_id/event_index/
 harness_release).
 
 Applicable rules: ADR-003, MR-005, HOOK-001, PORT-001, SEC-003, invariant 3/5.
+
+Hash domain (M3, review-binding): this index's ``content_sha256`` is the
+SHA-256 of the evidence FILE's raw bytes (tamper-detection domain). The
+entry's self-declared ``content_sha256`` inside the file binds the sanitized
+payload (``chatbi_governance.evidence``). Different domains, same field
+name — never compare the two as a binding check.
 """
 
 from __future__ import annotations

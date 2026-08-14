@@ -14,6 +14,12 @@ schemas, enforcing the documented JSON Schema subset (HOOK-001 determinism).
 
 Applicable rules: EVID (Cycle 3), QLT-001, SEC-003, PORT-001, HOOK-001,
 HOOK-004, SEM-001, SEM-002, RAW-001, RAW-003, REV-002, ANS-002.
+
+Hash domains (M3, review-binding): this module's ``content_sha256`` binds
+the entry's SANITIZED PAYLOAD (canonical JSON SHA-256). The evidence-index
+row hash (``runtimes.agno.evidence_index.add``) binds the evidence FILE's
+raw bytes — a different domain (tamper detection). The two are never equal
+by design and must not be compared as a binding check.
 """
 
 from __future__ import annotations

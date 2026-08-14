@@ -175,6 +175,20 @@ def build_governed_agent(
     # surface and the domain hook (fail-closed: any drift -> PromptLoadError
     # at startup; None is never passed here).
     runbook_registry = build_runbook_registry(ir_workflows, prompt_assets)
+    # M1 (review-binding): the reviewer's governing-context hash is the
+    # manifest-pinned sha256 of the adversarial-reviewer instructions.
+    # prompt_loader already verified content sha == manifest registration at
+    # startup, so the entries carry the authoritative value; resolve here
+    # fail-closed (never a silent candidate_sha fallback).
+    reviewer_context_hash = next(
+        (entry.sha256 for entry in prompt_assets.entries
+         if entry.name == "agents/adversarial-reviewer.md"),
+        "",
+    )
+    if not reviewer_context_hash:
+        raise ValueError(
+            "prompt assets carry no pinned sha256 for the "
+            "agents/adversarial-reviewer.md entry (fail-closed)")
     tools, spec_by_name = build_governed_tools(
         specs=tool_specs,
         deployment=deployment,
@@ -190,6 +204,7 @@ def build_governed_agent(
         clock=clock,
         run_scope=scope,
         runbook_registry=runbook_registry,
+        reviewer_context_hash=reviewer_context_hash,
     )
     tool_hooks = build_tool_hooks(
         specs_by_name=spec_by_name,

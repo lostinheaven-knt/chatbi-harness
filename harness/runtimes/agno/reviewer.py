@@ -195,6 +195,7 @@ def build_review_tool(
     reviewer_agent: Any,
     reviewer_runner: Any = None,
     run_scope: Any = None,
+    reviewer_context_hash: str = "",
 ) -> Callable[[str], dict]:
     """``chatbi_review`` governance-tool function body (skill+hooks module A).
 
@@ -229,7 +230,10 @@ def build_review_tool(
         context = {
             "task": "adversarial_review",
             "candidate_sha": candidate_sha,
-            "reviewer_context_hash": candidate_sha,
+            # M1 (review-binding): the harness injects the manifest-pinned
+            # governing-context hash (NOT the candidate sha); the reviewer
+            # echoes it in the verdict and the kernel verifies equality.
+            "reviewer_context_hash": reviewer_context_hash,
             "run_id": getattr(run_scope, "run_id", None) or "run",
             "round": int(getattr(run_scope, "review_round", 1) or 1),
             "evidence_refs": [
@@ -239,12 +243,20 @@ def build_review_tool(
             ],
         }
         verdict = runner(context)
-        return {
+        result: dict[str, Any] = {
             "tool": "chatbi_review",
             "status": "requested",
             "candidate_sha": candidate_sha,
             "verdict": dict(verdict) if isinstance(verdict, Mapping) else verdict,
         }
+        #: The hook's kernel verification compares the verdict's
+        #: reviewer_context_hash against THIS value (tool-boundary
+        #: carrier; no extra hook plumbing). Emitted only when the
+        #: harness injected a context hash (live path) — direct legacy
+        #: callers without one keep the pre-M1 hook behavior.
+        if reviewer_context_hash:
+            result["expected_context_hash"] = reviewer_context_hash
+        return result
 
     return _review
 
@@ -279,7 +291,9 @@ def run_review(
             {
                 "task": "adversarial_review",
                 "candidate_sha": candidate_sha,
-                "reviewer_context_hash": reviewer_context_hash or candidate_sha,
+                # M1 (review-binding): inject the governing-context hash
+                # verbatim; the verdict must echo it (kernel-verified).
+                "reviewer_context_hash": reviewer_context_hash,
                 "run_id": run_record.run_id,
                 "round": run_record.round,
                 "evidence_refs": [
@@ -309,6 +323,27 @@ def run_review(
             findings=tuple(error.decision.rule_ids),
             sanitized_output=False,
             reason=f"Review verdict violates review.schema.json: {error.decision.reason}",
+        )
+
+    # M1 (review-binding): the verdict must echo the injected
+    # governing-context hash — a mismatch means the verdict was produced
+    # under a different review context and cannot bind this candidate
+    # (HOOK-001 deterministic edge, REV-002 coverage integrity). Empty
+    # param = caller declared no expected context (legacy direct calls):
+    # nothing to compare against, so the check is skipped (the LIVE path
+    # always injects — agent_builder fails closed when the pin is missing).
+    if (reviewer_context_hash
+            and verdict.get("reviewer_context_hash") != reviewer_context_hash):
+        return ReviewResult(
+            verdict=ReviewVerdict.BLOCKED,
+            candidate_sha=candidate_sha,
+            findings=("HOOK-001", "REV-002"),
+            sanitized_output=False,
+            reason=(
+                "Reviewer verdict does not echo the injected governing-"
+                "context hash (REV-002); the verdict is not bound to the "
+                "current review context"
+            ),
         )
 
     verdict_sha = verdict.get("candidate_sha")
