@@ -112,6 +112,7 @@ from chatbi_governance.harness_state import _safe_session_id, write_state
 from chatbi_governance.impact import AffectedAsset, build_impact_manifest
 from chatbi_governance.knowledge import lint_reference
 from chatbi_governance.policy import PolicyRequest, decide
+from chatbi_governance.semantic import validate_semantic_metric_doc
 
 from .governed_tools import RunScope, evaluate_step_condition
 from .tools import StepToolPolicy, TOOL_NAME_MAP
@@ -2431,6 +2432,15 @@ def _build_domain_hook(
                         relative_path = str(path.relative_to(workspace_root))
                     except ValueError:
                         relative_path = path.name
+                    # SEM-003 hardening: the semantic layer is human-
+                    # governed — a doc without an owner/definition
+                    # declaration is never served as a metric (fail-closed
+                    # exclusion, recorded in rejected_paths).
+                    doc_decision = validate_semantic_metric_doc(content)
+                    if doc_decision.status != "pass":
+                        rejected_paths.append(
+                            f"{relative_path} ({doc_decision.reason})")
+                        continue
                     docs.append({**_doc_meta(relative_path, content),
                                  "content": content[: _SEMANTIC_DOC_CAP],
                                  "metric": header_metric or basename})

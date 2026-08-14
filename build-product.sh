@@ -88,6 +88,7 @@ echo "=== product built. Validating... ==="
      chatbi_harness.drift, chatbi_harness.schedules, \
      chatbi_governance.resources, chatbi_governance.evidence, \
      chatbi_governance.adapters.fixture, \
+     chatbi_governance.semantic, \
      chatbi_harness_ir, chatbi_runtime_contract, \
      runtimes.claude_code.probe, runtimes.claude_code.adapter, \
      runtimes.claude_code.build_manifest, runtimes.claude_code.reconcile, \

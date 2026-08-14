@@ -26,6 +26,11 @@ DOC-003, DOC-004, DOC-005, PORT-001.
   governed Warehouse facts; conflicts go to the domain owner.
 - Agents may draft metric documentation but cannot create or approve a canonical
   metric definition.
+- Tools and scaffolds must never auto-generate documents into the workspace's
+  active semantic layer directory (`semantic/metrics/`). Every semantic metric
+  document must declare its human owner (`owner:`); ownerless or
+  definition-less documents are excluded from semantic discovery (fail-closed,
+  SEM-003/DOC-002).
 
 ## Keep knowledge governed
 
