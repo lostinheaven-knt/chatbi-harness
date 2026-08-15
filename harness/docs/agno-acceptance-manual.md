@@ -229,6 +229,8 @@ python3 -c "import json; print(json.load(open('.scratch/agno-demo/ws/.claude/cha
 
 预期：`chatbi_crosscheck(search=True)` 命中 fypro 文档（evidence_source=codebase-crosscheck，命中数 > 0）。
 
+**诚实标注（2026-08-14 补，已闭口）**：本项验收原先只覆盖**工具能力**（确定性测试 + live-e 工具链直驱 search 命中），缺失"真实模型驱动下主动 crosscheck → 读全文档 → 提取映射 → 继续交付"的行为链验收。live 复现（session 9658ac26 run f7e3ca17）暴露该缺口后，preamble 加 C2 权威指引（提交 8687d46），并补做**真实模型驱动验收**：run `c2-live-acc-1`（2026-08-14）——真实模型 33 次工具调用，codebase-crosscheck 证据 ×7，读全文档并提取表→功能映射，provenance_refs 指向 fypro 文档，review PASS（round 1）→ delivery pass，run.completed ✅。至此本项验收覆盖能力 + 真实模型行为两层。
+
 | 步骤 | CC 操作（sessionB） | agno 落点 |
 |---|---|---|
 | 建仓 | `/chatbi-bootstrap` 9 步（config/adapter/dw 库/source_inventory/dbt scaffold） | ✅ bootstrap 工具面已实现：`_bootstrap` handler + `RuntimeNativeRunner.run_mysql`（CREATE DATABASE IF NOT EXISTS dw_agno + INFORMATION_SCHEMA 4 列探测）+ scaffold（dbt_project.yml name/profile=dw_agno + models/{ods,dwd,dws,ads}） |
