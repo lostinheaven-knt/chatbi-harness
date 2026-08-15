@@ -322,6 +322,13 @@ def build_governed_agent(
     agent = Agent(
         id="chatbi-agno",
         name="ChatBI Governed Agent (skill+hooks)",
+        # Multi-turn continuity (2026-08-15): AgentOS defaults to
+        # add_history_to_context=False — every new run saw ONLY the current
+        # user message, so handoff continuations ("选1" / "开新运行重评")
+        # had no context and the model answered garbled (session 68813a62).
+        # Bounded to the last 3 runs to cap context growth on long sessions.
+        add_history_to_context=True,
+        num_history_runs=3,
         description=(
             "Single governance agent for the nine IR workflows: runbook "
             "routing + governance tools + tool hooks + guardrails "
