@@ -229,6 +229,25 @@
             }
           },
           "additionalProperties": false
+        },
+        "workspace_timezone": {
+          "type": "object",
+          "properties": {
+            "zone": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "pattern": "^[A-Za-z_]+\\/[A-Za-z0-9_+\\-]+$|^UTC$"
+            },
+            "owner": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false

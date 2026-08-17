@@ -346,6 +346,42 @@ def _validate_effective_data(data: dict[str, Any]) -> None:
             reason="coverage_policy.stale_after_days must be a non-negative integer",
             recovery="Set a non-negative integer or leave it unset",
         )
+    # workspace_timezone (2026-08-17): the timezone caliber for data
+    # timestamps / calendar-day / freshness assertions is deployment policy
+    # confirmed by the domain owner (EVAL-004 pattern) - a zone without an
+    # owner is rejected fail-closed; the zone must be an IANA area/location
+    # name (or UTC) because the reviewer verifies candidate statements
+    # against this caliber.
+    import re as _re
+
+    workspace_timezone = data["governance"].get("workspace_timezone") or {}
+    tz_zone = workspace_timezone.get("zone")
+    tz_owner = workspace_timezone.get("owner")
+    tz_owner = tz_owner.strip() if isinstance(tz_owner, str) else ""
+    if tz_zone is not None and not tz_owner:
+        raise _config_gate_error(
+            rule_ids=("EVAL-004", "HOOK-004"),
+            evidence_ref="config:governance",
+            reason="A workspace timezone caliber has no explicit owner",
+            recovery="Configure workspace_timezone.owner or leave the zone unset",
+        )
+    if tz_owner and tz_zone is None:
+        raise _config_gate_error(
+            rule_ids=("EVAL-004", "HOOK-004"),
+            evidence_ref="config:governance",
+            reason="A workspace timezone owner is configured without a zone",
+            recovery="Configure workspace_timezone.zone or clear the owner",
+        )
+    if tz_zone is not None and (
+        not isinstance(tz_zone, str)
+        or not _re.fullmatch(r"[A-Za-z_]+/[A-Za-z0-9_+\-]+|UTC", tz_zone)
+    ):
+        raise _config_gate_error(
+            rule_ids=("HOOK-004",),
+            evidence_ref="config:governance",
+            reason="workspace_timezone.zone must be an IANA timezone name or UTC",
+            recovery="Use an IANA area/location name (e.g. Asia/Shanghai) or UTC",
+        )
     adapters = data["adapters"]
     adapter_ids = adapters["semantic"] + adapters["query"]
     fixture_ids = [item for item in adapter_ids if item.startswith("fixture:")]

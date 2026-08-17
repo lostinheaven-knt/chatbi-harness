@@ -119,9 +119,22 @@ dimensions. These exact key names are the `coverage` object keys required by
 4. **`filters_exclusions`** — Are required filters (e.g., fraud, status) and
    exclusions present and correct? Are they documented rather than assumed?
    No silently dropped filter that changes the result.
-5. **`date_timezone`** — Is the time range explicit (e.g., complete natural
-   month), is the timezone stated, and is the date convention consistent
-   between request, query, and footer?
+5. **`date_timezone`** — Two sub-concerns with different severity:
+   - **Consistency (blocking when broken):** the date convention must be
+     consistent between request, query, and footer, and the time range must
+     be explicit (e.g., complete natural month). A contradiction, or a
+     timezone whose mapping changes the result (e.g., a calendar-day claim
+     that flips across a UTC offset), is `fail` with a `block` finding.
+   - **Statement (non-blocking when missing):** merely *not stating* a
+     timezone is `fail`-with-`warn`, NOT `block`. Record a `warn` finding
+     with a recovery pointing at the workspace timezone caliber (if
+     configured, the candidate should cite it). Promote to `block` ONLY if a
+     workspace caliber is configured AND the candidate states a timezone that
+     contradicts it, or if the missing statement leaves a calendar-day/
+     freshness mapping genuinely ambiguous in a result-changing way.
+   Rationale: a missing timezone *label* is a disclosure gap, not an
+   unrecoverable data defect; fail-closed applies to unverifiable data
+   claims, not to unstated conventions.
 6. **`denominator`** — Is the denominator explicit, correct, and safe (safe
    division, no silent zero/null)? Is it the governed denominator, not a
    convenient one?
@@ -147,6 +160,10 @@ A dimension is `"not_applicable"` only when it genuinely cannot apply to the
 question (state why in a finding). Never use `"not_applicable"` to evade a
 real gap. When in doubt, mark `"fail"` and emit a finding rather than
 `"not_applicable"`.
+   Exception — `date_timezone` statement gap (dimension 5): a missing
+   timezone *label* alone is `warn`, not `block`; see dimension 5. The
+   fail-closed default still applies to consistency contradictions and to
+   timezone claims that contradict a configured workspace caliber.
 
 # 5. Stop conditions (PASS / BLOCKED / ERROR)
 

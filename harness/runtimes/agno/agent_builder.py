@@ -89,6 +89,7 @@ _GOVERNANCE_PROTOCOL = (
     "configured and confirmed by the domain owner — never invent them "
     "yourself (EVAL-004).\n"
     "{coverage_policy_line}\n"
+    "{timezone_line}\n"
     "7. MODEL SUFFICIENCY: when the governed dw models (ods/dwd/dws/ads) "
     "cannot support the requested analysis — missing tables, dimensions, "
     "or grain — do NOT keep digging raw tables or re-asking the user for "
@@ -101,8 +102,14 @@ _GOVERNANCE_PROTOCOL = (
     "any protected action (SCOPE-001, SEM-003). The operator may "
     "approve, adjust, or decline the proposal.\n"
     "8. Freeze the final answer with chatbi_submit_candidate, then call "
-    "chatbi_review — the answer is delivered only after the independent "
-    "reviewer passes (REV-001).\n"
+    "chatbi_review - the answer is delivered only after the independent "
+    "reviewer passes (REV-001). DELIVERY MESSAGE CONTRACT (deterministic "
+    "UI rendering depends on it): after the reviewer passes, the delivered "
+    "message ends with exactly ONE compact JSON object on the final line - "
+    "{{\"answer_body\": \"<the full markdown answer for the user>\", "
+    "\"provenance_footer\": \"<one line: source tier | review round | "
+    "freshness | owner | confidence>\"}}. Escape newlines inside the JSON "
+    "string values; write no prose after the object.\n"
     "9. When a tool call is DENIED, read the recovery message and follow "
     "it; if it says ASK the user, ask the user. If a denial says the "
     "warehouse is NOT initialized (no source inventory / no dw_agno "
@@ -313,8 +320,33 @@ def build_governed_agent(
                     owner=owner,
                     ratio=ratio if ratio is not None else 0.2,
                     days=days if days is not None else 7)
+    # workspace_timezone (2026-08-17): inject the deployment's owner-confirmed
+    # timezone caliber (EVAL-004 pattern) into the preamble. The caliber is the
+    # reference for data timestamps / calendar-day / freshness assertions; when
+    # unconfigured the model must disclose the raw convention it observed.
+    timezone_line = (
+        "Workspace timezone caliber: not configured - state the raw "
+        "convention you observed (e.g. naive datetimes) and disclose the "
+        "assumption when a calendar-day or freshness judgment depends on it.")
+    if config is not None:
+        try:
+            tz = (config.get("governance") or {}).get("workspace_timezone") or {}
+        except Exception:  # noqa: BLE001 - fail-open to the unconfigured wording
+            tz = {}
+        tz_zone = tz.get("zone")
+        tz_owner = tz.get("owner")
+        tz_owner = tz_owner.strip() if isinstance(tz_owner, str) else ""
+        if isinstance(tz_zone, str) and tz_zone.strip() and tz_owner:
+            timezone_line = (
+                "Workspace timezone caliber (owner-confirmed by {owner}): "
+                "{zone}. State data timestamps and \"as of\" references in "
+                "this timezone, and cite it in the provenance footer when a "
+                "calendar-day or freshness judgment depends on it.").format(
+                    owner=tz_owner, zone=tz_zone)
     instructions = [
-        _GOVERNANCE_PROTOCOL.format(coverage_policy_line=coverage_line),
+        _GOVERNANCE_PROTOCOL.format(
+            coverage_policy_line=coverage_line,
+            timezone_line=timezone_line),
         *prompt_assets.instructions,
         _routing_table(ir_workflows),
     ]
