@@ -2851,6 +2851,51 @@ class ChatbiDeliveryGuardrail(BaseGuardrail):
         chain.sort(key=lambda e: order.get(e["source_tier"], 9))
         return tuple(chain)
 
+    def _dw_sql_models_present(self) -> bool:
+        """True when the workspace has at least one dbt SQL model under
+        models/{ods,dwd,dws,ads}. Empty layer directories (demo scaffold)
+        do not count — that is the 'DW empty' condition the model used
+        to bypass via T3 raw exploration."""
+        root = self.workspace_root
+        for layer in ("ods", "dwd", "dws", "ads"):
+            folder = root / "models" / layer
+            if not folder.is_dir():
+                continue
+            try:
+                if any(folder.rglob("*.sql")):
+                    return True
+            except OSError:
+                continue
+        return False
+
+    def _operator_declined_build(self, run_id: str) -> bool:
+        """Operator explicitly declined the governed build chain (SEM-003
+        sign-off to stay on T3). Look for a recorded evidence payload or
+        request flag — without it the empty-DW + T3 delivery is blocked."""
+        if self.run_scope is not None:
+            request = self.run_scope.request or {}
+            if request.get("decline_build") is True:
+                return True
+        for row in self._run_evidence_rows(run_id):
+            entry = self._read_entry(row)
+            if not entry:
+                continue
+            source = str(entry.get("evidence_source") or "")
+            if "decline-build" in source or "build-declined" in source:
+                return True
+            payload = entry.get("payload") or {}
+            if isinstance(payload, Mapping) and payload.get("decline_build") is True:
+                return True
+        return False
+
+    def _tier_chain_has_t3_raw(self, tier_chain: tuple[dict[str, Any], ...]) -> bool:
+        for item in tier_chain:
+            if item.get("source_tier") == "T3":
+                return True
+            if item.get("evidence_source") == "raw-exploration":
+                return True
+        return False
+
     def _latest_review(self, run_id: str) -> dict[str, Any] | None:
         review: dict[str, Any] | None = None
         for row in self._run_evidence_rows(run_id):
@@ -3163,7 +3208,30 @@ class ChatbiDeliveryGuardrail(BaseGuardrail):
         reason = ""
         recovery = "Re-run the governed flow with a complete evidence chain"
         if workflow_id == "chatbi-analyze":
-            if not tier_chain and review is None:
+            # Hard MODEL SUFFICIENCY: empty DW + T3 raw delivery is blocked
+            # unless the operator explicitly declined the build chain.
+            # Conversational handoffs (no candidate object) still pass.
+            if (
+                not self._dw_sql_models_present()
+                and self._tier_chain_has_t3_raw(tier_chain)
+                and not self._operator_declined_build(run_id)
+                and isinstance(self._final_candidate(run_output), Mapping)
+            ):
+                rule_ids = ("SEM-003", "RAW-001", "HOOK-004")
+                reason = (
+                    "governed dw models (ods/dwd/dws/ads) are empty; a T3 "
+                    "raw-source delivery is not allowed (MODEL SUFFICIENCY)"
+                )
+                recovery = (
+                    "Propose the governed build chain "
+                    "(chatbi_bootstrap -> chatbi_build_plan ods/dwd/dws/ads "
+                    "-> chatbi_dbt_draft / chatbi_dbt_execute) and STOP for "
+                    "operator approval. After approval, execute the chain "
+                    "and analyze from the new models. T3 raw is allowed "
+                    "only if the operator explicitly declines the build "
+                    "(record decline_build=true)."
+                )
+            elif not tier_chain and review is None:
                 # Real-model integration (agno 验收 3.1): a run that ends
                 # with a conversational handoff (clarification question,
                 # request for input) has no evidence chain BY DESIGN — the
