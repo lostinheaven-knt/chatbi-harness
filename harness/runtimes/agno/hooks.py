@@ -3257,6 +3257,12 @@ class ChatbiDeliveryGuardrail(BaseGuardrail):
                     "in your next message and re-ask (REQ-001)"
                 )
             elif review is None:
+                # Build-chain proposal / operator-approval STOP: evidence
+                # (crosscheck, build_plan) may exist, but there is no
+                # frozen candidate to review. Treat as a handoff unless
+                # the final message is a candidate object.
+                if not isinstance(self._final_candidate(run_output), Mapping):
+                    return
                 rule_ids = ("REV-001", "REV-003")
                 reason = "no independent review was recorded (REV-001/002/003)"
             elif review.get("status") != "PASS":
