@@ -423,15 +423,18 @@ def _make_submit_candidate(scope: RunScope) -> Callable[..., dict]:
 
 
 def _make_crosscheck(scope: RunScope) -> Callable[..., dict]:
-    def chatbi_crosscheck(query: str, codebase: str = "",
-                          search: bool = False) -> dict[str, Any]:
+    def chatbi_crosscheck(query: str = "", codebase: str = "",
+                          search: bool = False,
+                          list_files: bool = False) -> dict[str, Any]:
         """Cross-check evidence against an external Business Codebase
-        (read-only; select_codebase_reader + reader.read/search, realpath
-        enforced by the realpath hook). search=True -> literal-substring
-        search over the aliased root (reader.search); otherwise read the
+        (read-only; select_codebase_reader + reader.read/search/list_files,
+        realpath enforced by the realpath hook). search=True -> literal-
+        substring search over the aliased root (reader.search); list_files=True
+        -> list document files in the alias root (reader.list_files, default
+        *.md) so the agent can discover what to read; otherwise read the
         target path (existing semantics)."""
         return _echo("chatbi_crosscheck", query=query, codebase=codebase,
-                     search=search)
+                     search=search, list_files=list_files)
 
     return chatbi_crosscheck
 

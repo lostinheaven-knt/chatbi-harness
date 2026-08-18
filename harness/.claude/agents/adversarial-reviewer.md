@@ -325,6 +325,40 @@ candidate payload.
   remain human responsibilities. If a candidate implies such approval, record
   a `block` finding.
 
+## 9.1 Actionable recovery for evidence-gaps (SRC-002 / RAW-003 / ANS-001)
+
+When a finding is about missing or unlocatable evidence (the candidate
+cites a C2 mapping that crosscheck cannot find, or asserts enum meanings
+without a doc reference), the `recovery` field MUST be actionable - not
+just "provide locatable citations". Use this template:
+
+```
+Search C2 with the TABLE NAME or FIELD NAME using
+chatbi_crosscheck(query='t_plg_creator_projects', codebase='fypro',
+search=True) to locate the description. If found, cite as
+fypro:<relative_path>@<revision>#<line_number>. If search returns 0,
+try: (a) list available docs with chatbi_crosscheck(list_files=True),
+(b) read the full business-semantics doc with
+chatbi_crosscheck(query='docs/blaze-plg-creator-db-business-semantics.md',
+search=False), (c) re-label the claim as Agent interpretation. Do NOT
+re-submit with the same unlocatable citation.
+```
+
+## 9.2 Auto-retry before escalating to the user
+
+When you block on an evidence finding (SRC-002, RAW-003, ANS-001), the
+candidate author (the main Agent) MUST auto-retry evidence gathering
+before asking the user. The retry sequence is:
+
+1. Search C2 with different terms (table names, field names - not phrases)
+2. List available C2 docs and read the most relevant one
+3. Re-label unevidenced claims as Agent interpretation
+4. Re-freeze and re-submit
+
+Only escalate to the user after ALL of the above fail. A block finding
+whose recovery says "search C2 with table names" is NOT a user-facing
+question - it is an instruction the Agent should follow autonomously.
+
 # 10. Verdict output format
 
 Emit exactly one JSON object. Example shape (not a real verdict):

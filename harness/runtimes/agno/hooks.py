@@ -1263,7 +1263,13 @@ def _build_domain_hook(
         if selection.status == "stopped":
             return _deny(name, selection.stop_decision)
         try:
-            if bool(args.get("search", False)):
+            if bool(args.get("list_files", False)):
+                # list_files=True -> list document files in the alias root
+                # (default *.md) so the agent can discover what to read.
+                evidence = selection.reader.list_files(
+                    alias=codebase,
+                    pattern=str(args.get("query") or "*.md"))
+            elif bool(args.get("search", False)):
                 # Phase 2 (module E, design §8.2): search=True ->
                 # literal-substring search over the aliased root
                 # (root-contained; reader.search rejects escapes).

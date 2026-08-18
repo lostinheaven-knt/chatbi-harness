@@ -50,8 +50,8 @@
   },
   "agents/adversarial-reviewer.md": {
    "kind": "agent",
-   "sha256": "12a64c96756ce84b8a36ecc046dfc398cf65e8d7ec368fa442b541cbd95ced9f",
-   "size": 21729
+   "sha256": "594b74076c2d1ffe6db4bc18668c78a921dead3599bf478fe130d682dc9d86a3",
+   "size": 23302
   }
  }
 }

@@ -40,6 +40,7 @@ import re
 import shutil
 import stat
 import subprocess
+import fnmatch
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -72,7 +73,7 @@ _MAX_SEARCH_RESULTS = 100
 _MAX_SEARCH_FILE_BYTES = 256 * 1024  # 256 KiB per file during search
 _GIT_TIMEOUT = 2  # seconds, mirrors paths._git_revision
 
-_VALID_OPERATIONS = frozenset({"read", "search", "stat", "git_metadata", "block"})
+_VALID_OPERATIONS = frozenset({"read", "search", "stat", "git_metadata", "block", "list_files"})
 _VALID_STATUSES = frozenset({"ok", "blocked", "error"})
 _VALID_HISTORY_MODES = frozenset({"metadata_only", "full_history"})
 
@@ -720,6 +721,96 @@ class CodebaseReader:
             rule_ids=("SCOPE-002", "SCOPE-003"),
             reason=(
                 f"Search returned {len(matches)} match(es) within the alias root"
+            ),
+            recovery="No action required",
+        )
+
+    def list_files(
+        self,
+        *,
+        alias: str,
+        pattern: str = "*.md",
+        max_results: int = _MAX_SEARCH_RESULTS,
+    ) -> CodebaseEvidence:
+        """List files in the aliased root (default ``*.md`` docs).
+
+        Lets the agent discover which documents exist under a C2 alias so
+        it can then ``read`` specific ones for evidence gathering. Stays
+        within the root via :func:`resolve_path_reference`.
+        """
+        root = self._root_for_alias(alias)
+        if root is None:
+            return CodebaseEvidence.error(
+                operation="list_files",
+                alias=alias,
+                reason=f"Could not resolve root for alias {alias}",
+                recovery="Verify the codebase path binding in local configuration",
+                rule_ids=("SCOPE-001", "PORT-001", "HOOK-004"),
+                error_category="root_unresolved",
+            )
+
+        try:
+            compiled = re.compile(fnmatch.translate(pattern), re.IGNORECASE)
+        except re.error as error:
+            return CodebaseEvidence.error(
+                operation="list_files",
+                alias=alias,
+                reason=f"Invalid glob pattern: {error}",
+                recovery="Use a glob pattern like *.md",
+                rule_ids=("HOOK-004",),
+                error_category="invalid_pattern",
+            )
+
+        files: list[dict[str, Any]] = []
+        truncated = False
+
+        for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+            dirnames.sort()
+            filenames.sort()
+            for filename in filenames:
+                if not compiled.match(filename):
+                    continue
+                abs_path = Path(dirpath) / filename
+                try:
+                    relative = abs_path.relative_to(root).as_posix()
+                except ValueError:
+                    continue
+                try:
+                    ref = resolve_path_reference(
+                        self._config, alias=alias, target=relative
+                    )
+                except GateError:
+                    continue
+                try:
+                    size = (root / ref.relative_path).stat().st_size
+                except OSError:
+                    size = 0
+                files.append(
+                    {
+                        "portable_reference": ref.to_dict(),
+                        "relative_path": relative,
+                        "size": size,
+                    }
+                )
+                if len(files) >= max_results:
+                    truncated = True
+                    break
+            if truncated:
+                break
+
+        data: dict[str, Any] = {
+            "pattern": pattern,
+            "files": files,
+            "file_count": len(files),
+            "truncated": truncated,
+        }
+        return CodebaseEvidence.ok(
+            operation="list_files",
+            alias=alias,
+            payload=data,
+            rule_ids=("SCOPE-002", "SCOPE-003"),
+            reason=(
+                f"Listed {len(files)} file(s) matching {pattern} in the alias root"
             ),
             recovery="No action required",
         )
