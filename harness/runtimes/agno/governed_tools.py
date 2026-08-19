@@ -242,6 +242,11 @@ class RunScope:
     review_round: int = 1
     #: Latest impact manifest dict (maintain-model DOC-004 sync gate state).
     impact: Mapping[str, Any] | None = None
+    #: workflow_ids whose runbook was loaded this run via chatbi_load_runbook.
+    #: Cleared at the run boundary. Empty means the model has not loaded a
+    #: procedure yet — query/submit/record_evidence are denied when a
+    #: runbook registry is wired (prompt-slim: no inlined analyze/governance).
+    loaded_runbooks: set[str] = field(default_factory=set)
 
 
 def evaluate_step_condition(

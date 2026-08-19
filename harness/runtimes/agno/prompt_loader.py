@@ -48,10 +48,11 @@ MANIFEST_SCHEMA_VERSION = "chatbi.prompts/v1"
 KIND_SKILL = "skill"
 KIND_AGENT = "agent"
 
-#: Skills whose bodies are injected as the main agent's instructions
-#: (design §3.2: governance skill + runbook skill).
-_INSTRUCTION_SKILLS = ("skills/chatbi-governance/SKILL.md",
-                       "skills/chatbi-runbook/SKILL.md")
+#: Skills whose bodies used to be inlined into Agent.instructions.
+#: Emptied (prompt-slim): analyze + audit-drift procedures load via
+#: chatbi_load_runbook like every other workflow. Manifest still pins all
+#: nine skill hashes; reviewer stays a separate agent.
+_INSTRUCTION_SKILLS: tuple[str, ...] = ()
 
 #: The reviewer agent manifest entry.
 _REVIEWER_ENTRY = "agents/adversarial-reviewer.md"
@@ -132,7 +133,7 @@ class RunbookEntry:
 class PromptAssets:
     """Assembled prompt assets for the ChatBI agent (design §3.1)."""
 
-    instructions: tuple[str, ...]        # governance skill + runbook bodies
+    instructions: tuple[str, ...]        # unused after prompt-slim (always empty)
     skills_root: Path                    # LocalSkills root (7 skills)
     reviewer_instructions: str           # agents/adversarial-reviewer.md body
     entries: tuple[PromptEntry, ...]     # every loaded entry (audit)
@@ -282,10 +283,7 @@ def load_prompt_assets(
         raise PromptLoadError(
             f"prompt manifest is missing the reviewer agent entry "
             f"{_REVIEWER_ENTRY!r}")
-    if not instruction_bodies:
-        raise PromptLoadError(
-            "prompt manifest carries none of the instruction skills "
-            f"{sorted(_INSTRUCTION_SKILLS)}")
+    # Empty _INSTRUCTION_SKILLS is valid: procedures load on demand.
 
     return PromptAssets(
         instructions=tuple(instruction_bodies),

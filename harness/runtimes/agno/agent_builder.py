@@ -33,7 +33,25 @@ SEM-003, invariant 2/5.
 
 from __future__ import annotations
 
-#: High-salience protocol preamble, prepended to the agent's instructions.
+#: High-salience protocol preamble = instructions[0] of the ChatBI agent.
+#:
+#: How the FIRST model message (role=system) is built when serve.py starts
+#: chatbi-agno (live dump session 5a65c991, ~31 KiB). ChatBI does NOT set
+#: Agent.system_message; agno-main get_system_message therefore concatenates:
+#:
+#:   [1] agent.description          (no tag; first paragraph)
+#:   [2] "- " + instructions[0]     this preamble (_GOVERNANCE_PROTOCOL)
+#:   [3] "- " + instructions[1]     skills/chatbi-governance/SKILL.md
+#:   [4] "- " + instructions[2]     skills/chatbi-runbook/SKILL.md
+#:   [5] "- " + instructions[3]     _routing_table(ir_workflows)
+#:
+#: use_instruction_tags defaults False, so there is NO <instructions>
+#: wrapper — each list item is a markdown "- " bullet. markdown=False
+#: and add_datetime_to_context unset, so no <additional_information>.
+#: Skills() is not mounted, so no skill-index snippet. Reviewer prompt
+#: (adversarial-reviewer.md) is a SEPARATE agent and is not in this
+#: system message.
+#:
 #: Real-model integration (agno 验收 3.1): the model read the full runbook
 #: body (~5-6K tokens) and still answered a data question WITHOUT calling any
 #: governance tool, so the delivery gate C002-blocked the output. The long
@@ -42,6 +60,36 @@ from __future__ import annotations
 #: only — the shared runbook/manifest assets are untouched.
 _GOVERNANCE_PROTOCOL = (
     "GOVERNANCE PROTOCOL (mandatory for every data-analysis question):\n"
+    "0. ROLE AND VOICE (two phases — do not mix them in what the user sees):\n"
+    "You are a business-literate warehouse developer, analyst, and "
+    "architect: you understand the product domain AND you design "
+    "governed ODS/DWD/DWS/ADS models. "
+    "Phase A — understand the ask and discuss the plan: be flexible. "
+    "Talk like a consultant. Offer options, tradeoffs, and a "
+    "recommendation. Ask only what changes the answer. STOP with a "
+    "question (step 3 / step 10). Do NOT dump an evidence pipeline or "
+    "rule catalog. "
+    "Phase B — execute and deliver: stay strict. Call the governed "
+    "tools in order; never invent numbers, enums, or joins; the JSON "
+    "delivery contract (step 8) is unchanged. "
+    "INTERNAL vs EXTERNAL language: tool arguments, evidence payloads, "
+    "and reviewer text MAY use T1/T2/T3 and rule ids (SEM-001, ANS-003, "
+    "SRC-002, …). Every message the operator reads MUST translate those "
+    "terms. Do not lead with rule ids. Preferred wording:\n"
+    "- T1 -> 已发布的指标 / 语义层口径\n"
+    "- T2 -> 已治理的数仓模型（可贴源/明细/汇总/应用层）\n"
+    "- T3 -> 生产库原始表（尚未入仓，把握程度低）\n"
+    "- ODS/DWD/DWS/ADS -> 贴源层 / 明细层 / 汇总层 / 应用层 "
+    "(give the English abbreviation once in parentheses)\n"
+    "- C2 / Business Codebase -> 业务文档里的定义\n"
+    "- ANS-003 / confidence=low -> 口径限制与把握程度（需写明缺了什么）\n"
+    "- SEM-003 / protected action -> 需要业务负责人签字的口径或发布\n"
+    "- SRC-002 / locatable citation -> 文档里能点开的出处\n"
+    "- candidate / freeze / review PASS -> 提交结论 / 独立复核通过\n"
+    "When proposing a build chain, say: 先把生产表纳入贴源层，再整理成"
+    "分析用的明细和汇总，批准后才写模型并构建 — then the tool names "
+    "in one short line if useful. Never answer a business user with a "
+    "bullet list of rule ids.\n"
     "1. You MUST begin by calling chatbi_record_request — never produce a "
     "data answer without the governed flow. The request needs exactly 7 "
     "fields: question, time_range (format YYYY-MM-DD_to_YYYY-MM-DD), "
@@ -72,8 +120,15 @@ _GOVERNANCE_PROTOCOL = (
     "or are silent (REQ-004, SRC-002). Static mappings (table-to-function "
     "taxonomies) are time-independent — do not ask for a time window just "
     "to read them.\n"
-    "5. Record evidence via chatbi_record_evidence (T1 semantic layer "
-    "first; T2/T3 only after a recorded T1 gap).\n"
+    "5. LOAD THEN ACT: after the request is final, call "
+    "chatbi_load_runbook with the workflow from the routing table "
+    "(chatbi-analyze for a data question; chatbi-bootstrap / "
+    "chatbi-build-from-requirement / chatbi-maintain-model for warehouse "
+    "build). Do NOT query production tables, record evidence, or submit "
+    "a candidate until that load succeeds — the hook will deny those "
+    "tools otherwise. Follow the loaded procedure. Record evidence via "
+    "chatbi_record_evidence (published metrics first; warehouse models "
+    "then production-table exploration only after a recorded gap).\n"
     "6. COVERAGE & CONFIDENCE (QLT-001/ANS-003 — calibrated guidance, not "
     "hard requirements): establish the data's actual time coverage "
     "(MIN/MAX of the authoritative time column via chatbi_query_source) "
@@ -146,12 +201,11 @@ _GOVERNANCE_PROTOCOL = (
     "propose alternatives, and ASK the user to adjudicate (end with a "
     "question). The user's answer governs; deterministic gates still "
     "apply until then (HOOK-001).\n"
-    "12. Non-analyze workflows (init, bootstrap, maintain-model, "
-    "build-from-requirement, evaluate, correction, audit-drift, "
-    "maintain-knowledge): load the runbook with chatbi_load_runbook and "
-    "execute with the workflow's chatbi_* tool (e.g. chatbi_bootstrap). "
-    "The CC /chatbi-* commands and native skill tools (get_skill_*) do NOT "
-    "exist in this runtime — never call them."
+    "12. All nine workflows load the same way: chatbi_load_runbook then "
+    "the workflow's chatbi_* tool (e.g. chatbi_bootstrap). Analyze is "
+    "not pre-loaded in this prompt. The CC /chatbi-* commands and native "
+    "skill tools (get_skill_*) do NOT exist in this runtime — never "
+    "call them."
 )
 
 from pathlib import Path
@@ -362,11 +416,13 @@ def build_governed_agent(
                 "this timezone, and cite it in the provenance footer when a "
                 "calendar-day or freshness judgment depends on it.").format(
                     owner=tz_owner, zone=tz_zone)
+    # System-message parts (prompt-slim): description + 2 instruction
+    # strings. Analyze/governance skill bodies are NOT inlined — load via
+    # chatbi_load_runbook. agno-main joins each item as "- {item}\n".
     instructions = [
         _GOVERNANCE_PROTOCOL.format(
             coverage_policy_line=coverage_line,
             timezone_line=timezone_line),
-        *prompt_assets.instructions,
         _routing_table(ir_workflows),
     ]
 
@@ -380,6 +436,8 @@ def build_governed_agent(
         # Bounded to the last 3 runs to cap context growth on long sessions.
         add_history_to_context=True,
         num_history_runs=3,
+        # [1] FIRST paragraph of role=system (see get_system_message 3.3.1).
+        # Not wrapped; appears before the "- GOVERNANCE PROTOCOL" bullet.
         description=(
             "Single governance agent for the nine IR workflows: runbook "
             "routing + governance tools + tool hooks + guardrails "
@@ -397,8 +455,7 @@ def build_governed_agent(
         # real model picks for "load skill" intent and gets C011-blocked —
         # tool-surface noise that distracts from the governed loader. The
         # runbook content is fully reachable via chatbi_load_runbook
-        # (sha256-pinned) and the governance+runbook bodies are already
-        # statically injected above; the native skill tools must not exist
+        # (sha256-pinned); the native skill tools must not exist
         # on the agent's surface (C011 interception stays for genuine
         # violations only).
         tools=tools,

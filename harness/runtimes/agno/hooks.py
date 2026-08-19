@@ -630,6 +630,8 @@ def build_tool_hooks(
                 scope.review_round = 1
                 scope.candidate_sha = ""
                 scope.impact = None
+                if hasattr(scope, "loaded_runbooks"):
+                    scope.loaded_runbooks.clear()
             scope.run_id = run_id or scope.run_id
             scope.session_id = (
                 getattr(run_context, "session_id", "") or scope.session_id
@@ -988,11 +990,34 @@ def _build_domain_hook(
                       "supported_decision=analysis) and ask the user only "
                       "for the analysis window / ambiguous entity"))
 
+    def _runbook_deny(name: str) -> dict[str, Any] | None:
+        """Prompt-slim: when a runbook registry is wired, query / submit /
+        record_evidence require at least one chatbi_load_runbook this run.
+        Tests that omit the registry keep the old surface (no surprise
+        denials). Proposal tools (crosscheck / build_plan / record_request)
+        are never gated here."""
+        if not runbook_registry:
+            return None
+        loaded = getattr(scope, "loaded_runbooks", None) or set()
+        if loaded:
+            return None
+        return _deny_raw(
+            name, rule_ids=("HOOK-004",),
+            reason=("no runbook loaded this run; load the procedure "
+                    "before querying, recording evidence, or submitting "
+                    "a candidate"),
+            recovery=("Call chatbi_load_runbook(<workflow_id>) first "
+                      "(chatbi-analyze for a data question; see the "
+                      "routing table), then retry this tool"))
+
     # --- chatbi_record_evidence -------------------------------------------
     def _record_evidence(name: str, func: Callable[..., Any],
                          args: Mapping[str, Any]) -> Any:
         tier = str(args.get("tier", ""))
         denied = _request_deny(name)
+        if denied is not None:
+            return denied
+        denied = _runbook_deny(name)
         if denied is not None:
             return denied
         content = args.get("content")
@@ -1041,6 +1066,9 @@ def _build_domain_hook(
                           args: Mapping[str, Any]) -> Any:
         content = args.get("content")
         denied = _request_deny(name)
+        if denied is not None:
+            return denied
+        denied = _runbook_deny(name)
         if denied is not None:
             return denied
         if content is None:
@@ -1994,6 +2022,9 @@ def _build_domain_hook(
         denied = _request_deny(name)
         if denied is not None:
             return denied
+        denied = _runbook_deny(name)
+        if denied is not None:
+            return denied
         import hashlib
 
         statement = args.get("statement")
@@ -2515,6 +2546,8 @@ def _build_domain_hook(
             runtime_name="agno", native_run_id=scope.run_id or "",
             harness_release=harness_release)
         _record(name, "runbook_load", entry_ev)
+        if hasattr(scope, "loaded_runbooks"):
+            scope.loaded_runbooks.add(workflow_id)
         return func(**args)
 
     _DISPATCH: dict[str, Callable[..., Any]] = {
