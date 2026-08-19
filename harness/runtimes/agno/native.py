@@ -240,6 +240,73 @@ class RuntimeNativeRunner:
             "table_count": len(inventory.tables),
         }
 
+    def _blueprint_stub(self, warehouse_db: str) -> str:
+        """Operator-guidance stub (DOC-001 does not apply to § Tooling).
+
+        Paths come from the deployment boundary already confirmed by the
+        operator (dbt_bin / cli_allowlist). Empty bindings stay as
+        placeholders — never invent a PATH-discovered executable.
+        """
+        dbt_bin = str(getattr(self._deployment, "dbt_bin", "") or "").strip()
+        dbt_line = (
+            f"`{dbt_bin}` (from deployment `dbt_bin`; already operator-"
+            "confirmed). `chatbi_dbt_execute` uses this same binding — "
+            "do not ask the operator to re-specify it, and do not guess "
+            "from PATH."
+            if dbt_bin else
+            "`<operator-fills-dbt-absolute-path>` — STOP and ask which "
+            "dbt to use before `dbt run`/`dbt test` (do not guess from PATH)."
+        )
+        allowlist = tuple(getattr(self._deployment, "cli_allowlist", ()) or ())
+        mysql_bin = next(
+            (str(p) for p in allowlist
+             if str(p).rstrip("/").endswith("/mysql") or str(p).endswith("mysql")),
+            "`<operator-fills-mysql-absolute-path>`",
+        )
+        if not mysql_bin.startswith("`"):
+            mysql_bin = f"`{mysql_bin}` (from deployment `cli_allowlist`)"
+        profiles_dir = str(
+            getattr(self._deployment, "dbt_profiles_dir", "") or "").strip()
+        profiles_line = (
+            f"`{profiles_dir}` (deployment `dbt_profiles_dir`)"
+            if profiles_dir else
+            "`~/.dbt` (dbt default; override via deployment `dbt_profiles_dir`)"
+        )
+        return (
+            "# Data Warehouse Blueprint (demo scaffold)\n\n"
+            "> Scaffold stub created by agno bootstrap. Governed blueprint "
+            "content is authored via `/chatbi-maintain-knowledge` (DOC-001). "
+            "Do not treat this stub as a canonical reference — EXCEPT the "
+            "**Tooling** section below, which is environment-specific "
+            "operator guidance (not governed knowledge) and is authoritative "
+            "for which executables to use.\n\n"
+            f"Project: {warehouse_db} (dbt profile: {warehouse_db})\n\n"
+            "## Tooling (environment-specific; read before running dbt)\n\n"
+            f"- **dbt**: use {dbt_line}\n"
+            f"- **MySQL CLI**: {mysql_bin}. Connection argv comes from "
+            "`.claude/chatbi-harness.local.json` `cli_adapters.mysql` "
+            "(do not invent host/password).\n"
+            f"- **dbt profile**: profile name MUST be `{warehouse_db}` "
+            f"(matches `dbt_project.yml`). Profiles dir: {profiles_line}.\n"
+            "- **Rule**: `/chatbi-maintain-model` and `chatbi_dbt_execute` "
+            "MUST invoke the dbt named above, never a PATH-discovered "
+            "binary. If this section does not name a dbt executable, STOP "
+            "and ask the operator — do not guess from PATH.\n\n"
+            "## Source\n\n"
+            "- Source inventory: `.chatbi/bootstrap/source_inventory.json` "
+            "— derived evidence, not a governed Warehouse model.\n\n"
+            "## Layers\n\n"
+            "Layer order: ODS (source-aligned) -> DWD (detail, joins ODS) "
+            "-> DWS (summary, aggregates DWD) -> ADS (application, "
+            "summarizes DWS). DIM is an independent dimension layer.\n"
+            "No-cross-layer: ADS depends only on DWS/DIM; DWS only on "
+            "DWD/DIM; DWD only on ODS/DIM. Per-org rules are filled by "
+            "the operator; do not invent exceptions here.\n\n"
+            "## Metrics\n\n"
+            "Empty placeholder. Operator/domain owner records metric "
+            "design intent here (SEM-003). Do not invent metrics.\n"
+        )
+
     # -- scaffold ----------------------------------------------------------
     def _scaffold(self) -> Mapping[str, Any]:
         warehouse_db = getattr(self._deployment, "warehouse_db", "dw_agno")
@@ -257,11 +324,15 @@ class RuntimeNativeRunner:
         blueprint = (self._workspace_root / "docs" / "org"
                      / "data-warehouse-blueprint.md")
         blueprint.parent.mkdir(parents=True, exist_ok=True)
-        blueprint.write_text(
-            "# Data Warehouse Blueprint (demo scaffold)\n\n"
-            f"Project: {warehouse_db} (dbt profile: {warehouse_db})\n"
-            "Layers: ods -> dwd -> dws -> ads\n",
-            encoding="utf-8")
+        existing = ""
+        if blueprint.is_file():
+            try:
+                existing = blueprint.read_text(encoding="utf-8")
+            except OSError:
+                existing = ""
+        if "## Tooling" not in existing:
+            blueprint.write_text(
+                self._blueprint_stub(str(warehouse_db)), encoding="utf-8")
         return {"status": "ok",
                 "scaffold": {"project": warehouse_db, "models_dir": "models"}}
 
