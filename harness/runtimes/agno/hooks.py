@@ -240,6 +240,35 @@ def _reviewed_candidate_shas(event_log: Any, run_id: str) -> frozenset[str]:
     return frozenset(shas)
 
 
+def _frozen_candidate_sha(scope: RunScope, event_log: Any, run_id: str) -> str:
+    """SHA frozen by chatbi_submit_candidate this run (REV-001 bind).
+
+    Prefer the process-local scope (set by the submit hook). If the scope
+    lost the value mid-run, fall back to the last candidate-bind evidence
+    event. Empty means nothing was frozen — chatbi_review must not invoke
+    the reviewer or count a REV-003 BLOCK (session 08b4820c: ghost SHAs
+    burned the 3-BLOCK budget).
+    """
+    sha = str(getattr(scope, "candidate_sha", "") or "")
+    if sha:
+        return sha
+    try:
+        events = event_log.replay(run_id).events
+    except Exception:  # noqa: BLE001
+        return ""
+    frozen = ""
+    for event in events:
+        if event.get("event_type") != "evidence.recorded":
+            continue
+        payload = event.get("payload") or {}
+        if payload.get("evidence_source") != "candidate-bind":
+            continue
+        bound = payload.get("candidate_sha")
+        if isinstance(bound, str) and bound:
+            frozen = bound
+    return frozen
+
+
 def _review_block_count(event_log: Any, run_id: str) -> int:
     """BLOCKED ``review.completed`` events in the run (event-log derived).
 
@@ -530,6 +559,15 @@ def _emit_evidence_recorded(
 ) -> None:
     from .events import emit_standard_event
 
+    payload: dict[str, Any] = {
+        "source_tier": entry.source_tier,
+        "evidence_source": entry.evidence_source,
+        "content_sha256": entry.content_sha256,
+        "rule_ids": list(entry.rule_ids),
+    }
+    bound = (entry.payload or {}).get("candidate_sha")
+    if entry.evidence_source == "candidate-bind" and isinstance(bound, str) and bound:
+        payload["candidate_sha"] = bound
     emit_standard_event(
         event_log,
         run_id=scope.run_id or "run",
@@ -537,12 +575,7 @@ def _emit_evidence_recorded(
         workflow_id=scope.workflow_id or "chatbi-analyze",
         step_id=None,
         event_type="evidence.recorded",
-        payload={
-            "source_tier": entry.source_tier,
-            "evidence_source": entry.evidence_source,
-            "content_sha256": entry.content_sha256,
-            "rule_ids": list(entry.rule_ids),
-        },
+        payload=payload,
         evidence_refs=(entry.evidence_source,),
     )
 
@@ -1122,7 +1155,28 @@ def _build_domain_hook(
             _emit_tool_blocked(event_log, scope, name, payload)
             return payload
 
-        candidate_sha = str(args.get("candidate_sha") or scope.candidate_sha or "")
+        run_id = scope.run_id or "run"
+        frozen_sha = _frozen_candidate_sha(scope, event_log, run_id)
+        requested_sha = str(args.get("candidate_sha") or "")
+        if not frozen_sha:
+            return _deny_raw(
+                name, rule_ids=("REV-001", "HOOK-004"),
+                reason=("no frozen candidate this run; chatbi_review only "
+                        "binds to a SHA produced by chatbi_submit_candidate"),
+                recovery=("Call chatbi_submit_candidate with the exact "
+                          "content to review, then chatbi_review using the "
+                          "returned candidate_sha"))
+        if requested_sha and requested_sha != frozen_sha:
+            return _deny_raw(
+                name, rule_ids=("REV-001", "HOOK-004"),
+                reason=(f"candidate_sha {requested_sha[:12]}… is not the "
+                        f"frozen candidate this run ({frozen_sha[:12]}…); "
+                        "unbound SHAs must not invoke the reviewer"),
+                recovery=("Call chatbi_submit_candidate with the content to "
+                          "review, then chatbi_review with that "
+                          "candidate_sha — do not invent or reuse a SHA "
+                          "from another file or run"))
+        candidate_sha = frozen_sha
         emit_standard_event(
             event_log, run_id=scope.run_id or "run",
             session_id=scope.session_id or "session",
