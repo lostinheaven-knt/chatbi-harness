@@ -88,7 +88,7 @@ capabilities:
   tool_allowlist: required
 prompts:
   - {name: runbook, path: skills/chatbi-runbook/SKILL.md, sha256: "3677ee4e103031c8dac98b8f9afa11829305c4d7e0d4c0693868aad7ee15082a"}
-  - {name: reviewer, path: agents/adversarial-reviewer.md, sha256: "594b74076c2d1ffe6db4bc18668c78a921dead3599bf478fe130d682dc9d86a3"}
+  - {name: reviewer, path: agents/adversarial-reviewer.md, sha256: "5e75ea9539be5b2e9e34ccc59088ff1684dd49c3e3be8c5f688304e7a6bf53ff"}
 tools: {allow: [Read, Grep, Glob, Bash, Edit, Write], deny: [Task, WebFetch, WebSearch]}
 evidence:
   root: ".chatbi"

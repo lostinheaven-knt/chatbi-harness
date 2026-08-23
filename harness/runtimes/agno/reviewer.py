@@ -24,12 +24,45 @@ Applicable rules: REV-001/002/003, HOOK-004, SEC-003, invariant 2/4.
 
 from __future__ import annotations
 
+import contextvars
 import json
-from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from chatbi_governance.evidence import GateError, validate_review
+from chatbi_governance.harness_state import _safe_session_id
 from chatbi_runtime_contract.types import ReviewResult, ReviewVerdict
+
+#: Live reviewer FileTools reads this to hide other sessions' .chatbi/runs.
+_reviewer_session_id: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "chatbi_reviewer_session_id", default=""
+)
+
+
+def is_foreign_session_evidence(
+    path: Path, *, workspace_root: Path, session_id: str,
+) -> bool:
+    """True when ``path`` is unpublished evidence from another session.
+
+    Published ``semantic/`` and ``models/`` are never foreign. Unbound
+    session_id hides every ``.chatbi/runs/<sid>/`` file so a reviewer
+    cannot promote a locatable T3 JSON into REQ-002 authority.
+    """
+    try:
+        rel = Path(path).resolve().relative_to(Path(workspace_root).resolve())
+    except (OSError, ValueError):
+        return False
+    parts = rel.parts
+    if len(parts) < 3 or parts[0] != ".chatbi" or parts[1] != "runs":
+        return False
+    owner = parts[2]
+    if not session_id:
+        return True
+    try:
+        safe = _safe_session_id(session_id)
+    except ValueError:
+        return True
+    return owner != safe
 
 REVIEWER_ID = "chatbi-reviewer"
 
@@ -45,10 +78,51 @@ _READ_ONLY_FILE_TOOLS = {
 }
 
 
+def _make_scoped_file_tools(workspace_root: Path | None) -> Any:
+    from agno.tools.file import FileTools
+
+    class _Scoped(FileTools):  # type: ignore[misc]
+        def _is_excluded(self, path: Path) -> bool:  # noqa: N802
+            if super()._is_excluded(path):
+                return True
+            return is_foreign_session_evidence(
+                path, workspace_root=self.base_dir,
+                session_id=_reviewer_session_id.get() or "",
+            )
+
+        def read_file(self, file_name: str, encoding: str = "utf-8") -> str:
+            safe, file_path = self.check_escape(file_name)
+            if not safe:
+                return "Error reading file"
+            if is_foreign_session_evidence(
+                file_path, workspace_root=self.base_dir,
+                session_id=_reviewer_session_id.get() or "",
+            ):
+                return (
+                    "Error: unpublished evidence from another session is "
+                    "not a review authority (foreign_session_evidence="
+                    "not_canonical)"
+                )
+            return super().read_file(file_name, encoding=encoding)
+
+    return _Scoped(
+        base_dir=workspace_root,
+        enable_save_file=False,
+        enable_delete_file=False,
+        enable_read_file=True,
+        enable_list_files=True,
+        enable_search_files=True,
+        enable_search_content=True,
+        enable_read_file_chunk=False,
+        enable_replace_file_chunk=False,
+    )
+
+
 def build_reviewer_agent(
     deployment: Any,
     model_config: Any,
     instructions: str | None = None,
+    workspace_root: Path | None = None,
 ) -> Any:
     """Build the independent reviewer Agent (agno 2.6.22).
 
@@ -65,21 +139,8 @@ def build_reviewer_agent(
 
     ensure_agno_unshadowed()
     from agno.agent import Agent
-    from agno.tools.file import FileTools
 
-    tools = [
-        FileTools(
-            base_dir=None,
-            enable_save_file=False,
-            enable_delete_file=False,
-            enable_read_file=True,
-            enable_list_files=True,
-            enable_search_files=True,
-            enable_search_content=True,
-            enable_read_file_chunk=False,
-            enable_replace_file_chunk=False,
-        )
-    ]
+    tools = [_make_scoped_file_tools(workspace_root)]
     if model_config.api_key:
         import os
 
@@ -174,9 +235,14 @@ def _default_reviewer_runner(agent: Any) -> ReviewerRunner:
     def _run(review_context: Mapping[str, Any]) -> Mapping[str, Any]:
         if agent is None:
             raise RuntimeError("reviewer agent unavailable (fail-closed)")
-        response = agent.run(
-            json.dumps(review_context, ensure_ascii=False, sort_keys=True)
-        )
+        token = _reviewer_session_id.set(
+            str(review_context.get("session_id") or ""))
+        try:
+            response = agent.run(
+                json.dumps(review_context, ensure_ascii=False, sort_keys=True)
+            )
+        finally:
+            _reviewer_session_id.reset(token)
         content = getattr(response, "content", None)
         if not isinstance(content, str) or not content.strip():
             raise RuntimeError("reviewer returned no content (fail-closed)")
@@ -227,6 +293,12 @@ def build_review_tool(
                 "candidate_sha": candidate_sha,
                 "error": "reviewer runner unavailable (fail-closed)",
             }
+        drafts = getattr(run_scope, "draft_model_shas", None) or set()
+        adj = getattr(run_scope, "session_adjudication", None)
+        kind = (
+            "model-draft" if candidate_sha and candidate_sha in drafts
+            else "analysis"
+        )
         context = {
             "task": "adversarial_review",
             "candidate_sha": candidate_sha,
@@ -235,7 +307,17 @@ def build_review_tool(
             # echoes it in the verdict and the kernel verifies equality.
             "reviewer_context_hash": reviewer_context_hash,
             "run_id": getattr(run_scope, "run_id", None) or "run",
+            "session_id": getattr(run_scope, "session_id", None) or "",
             "round": int(getattr(run_scope, "review_round", 1) or 1),
+            "candidate_kind": kind,
+            "session_adjudication": (
+                dict(adj) if isinstance(adj, Mapping) else None),
+            "authority": {
+                "foreign_session_evidence": "not_canonical",
+                "published_semantic": "canonical",
+                "session_adjudication": "session_scoped",
+                "unpublished_models": "draft",
+            },
             "evidence_refs": [
                 e.get("evidence_source")
                 for e in (getattr(run_scope, "evidence_chain", ()) or ())
@@ -296,6 +378,7 @@ def run_review(
                 "reviewer_context_hash": reviewer_context_hash,
                 "run_id": run_record.run_id,
                 "round": run_record.round,
+                "authority": {"foreign_session_evidence": "not_canonical"},
                 "evidence_refs": [
                     e.get("evidence_source")
                     for e in evidence_chain

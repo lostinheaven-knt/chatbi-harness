@@ -81,6 +81,37 @@ field, join, filter, denominator, or date convention, fails review (RAW-003).
 - The candidate must not invent a table, field, join, filter, denominator,
   date convention, result, or business meaning (RAW-003).
 
+## 2.1 Unpublished vs published authority (session isolation)
+
+The review context may include `session_id`, `candidate_kind`
+(`analysis` | `model-draft`), `session_adjudication`, and
+`authority.foreign_session_evidence=not_canonical`.
+
+- **Published T1** (`semantic/`) is workspace-canonical.
+- **This session's** `.chatbi/runs/<session_id>/` evidence and
+  `session_adjudication` are in-scope working claims. When
+  `session_adjudication` pins a caliber (scope list, rejected options),
+  do **not** emit a REQ-002 / entity `block` that the operator must
+  re-choose "all functions". Treat a matching disclosed scope as
+  resolved for this session. A change of caliber requires a new
+  adjudication, not a BLOCK that re-asks.
+- **Foreign-session unpublished evidence** (other
+  `.chatbi/runs/<other>/` JSON, including T3 that claims
+  user-adjudicated) is **not canonical**. You must not use it as the
+  sole proof of entity, grain, or metric (REQ-002, SEM-003). If a
+  search tool cannot open it, that is by design — do not invent a
+  finding that it "exists therefore this candidate is wrong".
+- **`candidate_kind=model-draft`**: the candidate is unpublished SQL
+  under `models/`, not a delivered analysis number. Do not BLOCK because
+  the table is unmaterialized, not in the model registry, or is not
+  curated T2. Verify internal consistency, disclosed scope, and (when
+  present) alignment with `session_adjudication`. Dimensions that only
+  apply to analysis numbers (`denominator`, `sample_bias`, freshness of
+  a result set) may be `not_applicable` with that reason. Unmaterialized
+  is a draft state, not a RAW/SEM failure.
+- Do not require a unique global C1 entity when the semantic layer is
+  empty and the candidate honestly discloses a working scope.
+
 # 3. Least-privilege, read-only tool restriction (REV-001/002 independence)
 
 You are **structurally incapable of mutating anything**. Your tool surface is
@@ -110,7 +141,9 @@ dimensions. These exact key names are the `coverage` object keys required by
 1. **`entity`** — Was the canonical entity resolved (not a "looks-usable"
    table)? Are selected and rejected candidates and the reason recorded
    (REQ-002, REQ-003)? Is the entity consistent across the candidate's query,
-   footer, and evidence?
+   footer, and evidence? Session-scoped `session_adjudication` that matches
+   the candidate's disclosed scope **is** recorded selection/rejection for
+   this session. Foreign-session T3 is not.
 2. **`grain`** — Is the aggregation grain explicit and correct for the
    question? Does the candidate avoid silently changing grain to make a number
    match?

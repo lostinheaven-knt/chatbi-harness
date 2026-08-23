@@ -247,6 +247,13 @@ class RunScope:
     #: procedure yet — query/submit/record_evidence are denied when a
     #: runbook registry is wired (prompt-slim: no inlined analyze/governance).
     loaded_runbooks: set[str] = field(default_factory=set)
+    #: Session-scoped operator caliber pin (not published T1). Survives the
+    #: run boundary for the same session_id; loaded from
+    #: ``.chatbi/runs/<sid>/adjudication.json``.
+    session_adjudication: Mapping[str, Any] | None = None
+    #: Content SHAs of unpublished ``chatbi_dbt_draft`` writes this session
+    #: (process memory). Used to tag reviewer ``candidate_kind=model-draft``.
+    draft_model_shas: set[str] = field(default_factory=set)
 
 
 def evaluate_step_condition(
@@ -407,13 +414,18 @@ def _make_record_request(scope: RunScope) -> Callable[..., dict]:
 
 def _make_record_evidence(scope: RunScope) -> Callable[..., dict]:
     def chatbi_record_evidence(
-        tier: str, content: Any, refs: list | None = None
+        tier: str, content: Any, refs: list | None = None,
+        kind: str | None = None,
     ) -> dict[str, Any]:
         """Record one evidence entry for a source tier (T1/T2/T3); the
         tier-gap hook enforces the T2/T3 preconditions and persists the
-        sanitized EvidenceEntry."""
+        sanitized EvidenceEntry.
+
+        kind="operator-adjudication" records a session-scoped caliber pin
+        (does not rewrite as curated-reference; does not enter the analyze
+        tier chain). Omit kind for the T1/T2/T3 ladder."""
         return _echo("chatbi_record_evidence", tier=tier, content=content,
-                     refs=list(refs) if refs else None)
+                     refs=list(refs) if refs else None, kind=kind)
 
     return chatbi_record_evidence
 

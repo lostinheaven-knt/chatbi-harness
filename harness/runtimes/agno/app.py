@@ -181,6 +181,7 @@ def create_chatbi_app(
         reviewer_agent = build_reviewer_agent(
             deployment, model_config,
             instructions=prompt_assets.reviewer_instructions,
+            workspace_root=ws,
         )
 
     from .agent_builder import build_governed_agent  # noqa: PLC0415

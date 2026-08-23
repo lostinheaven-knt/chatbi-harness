@@ -108,7 +108,9 @@ from chatbi_governance.evidence import (
     validate_review,
 )
 from chatbi_governance.gates import GateDecision, _sanitize_text
-from chatbi_governance.harness_state import _safe_session_id, write_state
+from chatbi_governance.harness_state import (
+    _safe_session_id, read_state, write_state,
+)
 from chatbi_governance.impact import AffectedAsset, build_impact_manifest
 from chatbi_governance.knowledge import lint_reference
 from chatbi_governance.policy import PolicyRequest, decide
@@ -534,6 +536,19 @@ def _emit_tool_blocked(
     )
 
 
+def _load_session_adjudication(
+    workspace_root: Path, session_id: str,
+) -> dict[str, Any] | None:
+    """Session-scoped operator caliber pin (unpublished; not T1)."""
+    if not session_id:
+        return None
+    try:
+        data = read_state(workspace_root, session_id, "adjudication.json")
+    except Exception:  # noqa: BLE001
+        return None
+    return data if isinstance(data, dict) else None
+
+
 def _record_evidence_file(
     *,
     scope: RunScope,
@@ -659,6 +674,13 @@ def build_tool_hooks(
                 # fields are reset here at the run boundary (live-verified:
                 # run N's gap leaked into run N+1's T2 acceptance before this
                 # fix; deterministic probe reproduced both directions).
+                new_sid = (
+                    getattr(run_context, "session_id", "") or scope.session_id
+                )
+                if new_sid != scope.session_id:
+                    scope.session_adjudication = None
+                    if hasattr(scope, "draft_model_shas"):
+                        scope.draft_model_shas.clear()
                 scope.evidence_chain.clear()
                 scope.review_round = 1
                 scope.candidate_sha = ""
@@ -672,6 +694,12 @@ def build_tool_hooks(
             scope.workflow_id = (
                 getattr(run_context, "workflow_id", "") or scope.workflow_id
             )
+            if (getattr(scope, "session_adjudication", None) is None
+                    and scope.session_id):
+                loaded = _load_session_adjudication(
+                    workspace_root, scope.session_id)
+                if loaded:
+                    scope.session_adjudication = loaded
         clean = _sanitize_args(dict(args), tool_name=name)
         return func(**clean)
 
@@ -1046,6 +1074,47 @@ def _build_domain_hook(
     # --- chatbi_record_evidence -------------------------------------------
     def _record_evidence(name: str, func: Callable[..., Any],
                          args: Mapping[str, Any]) -> Any:
+        kind = str(args.get("kind") or "")
+        if kind == "operator-adjudication":
+            denied = _request_deny(name)
+            if denied is not None:
+                return denied
+            content = args.get("content")
+            if content is None:
+                return _deny_raw(
+                    name, rule_ids=("HOOK-004",),
+                    reason="operator-adjudication requires content",
+                    recovery="Provide the pinned caliber (scope list, "
+                             "rejected options, who confirmed)")
+            payload: dict[str, Any] = (
+                dict(content) if isinstance(content, Mapping)
+                else {"content": content}
+            )
+            payload.setdefault("kind", "operator-adjudication")
+            entry = EvidenceEntry.create(
+                source_tier="T2",
+                evidence_source="operator-adjudication",
+                rule_ids=("REQ-002", "HOOK-001"),
+                payload=payload,
+                runtime_name="agno", native_run_id=scope.run_id or "",
+                harness_release=harness_release,
+            )
+            _record(name, "adjudication", entry)
+            scope.session_adjudication = payload
+            try:
+                write_state(
+                    workspace_root,
+                    _safe_session_id(scope.session_id or "session"),
+                    "adjudication.json", payload)
+            except ValueError:
+                pass
+            result = func(**args)
+            if isinstance(result, Mapping):
+                return {**dict(result),
+                        "evidence_source": "operator-adjudication",
+                        "content_sha256": entry.content_sha256,
+                        "recorded": True, "session_scoped": True}
+            return result
         tier = str(args.get("tier", ""))
         denied = _request_deny(name)
         if denied is not None:
@@ -2254,6 +2323,14 @@ def _build_domain_hook(
                 reason="draft path must be workspace-relative with no .. "
                        "traversal (PORT-001)",
                 recovery="Use a models/** relative path")
+        if rel.parts and rel.parts[0] == "semantic":
+            return _deny_raw(
+                name, rule_ids=("SEM-003", "HOOK-004"),
+                reason="chatbi_dbt_draft cannot write the semantic layer "
+                       "(SEM-003); unpublished drafts stay under models/",
+                recovery="Draft under models/**; publish semantic docs only "
+                         "via the maintain-knowledge path after owner "
+                         "confirmation")
         if rel.suffix not in (".sql", ".yml"):
             return _deny_raw(
                 name, rule_ids=("HOOK-004",),
@@ -2298,10 +2375,13 @@ def _build_domain_hook(
                 recovery="Check the models/ directory permissions and "
                          "re-draft")
         sha = compute_candidate_sha(sanitized)
+        if hasattr(scope, "draft_model_shas"):
+            scope.draft_model_shas.add(sha)
         entry = EvidenceEntry.create(
             source_tier="T2", evidence_source="model-candidate",
             rule_ids=("REV-001", "DOC-004"),
-            payload={"relative_path": str(rel), "content_sha256": sha},
+            payload={"relative_path": str(rel), "content_sha256": sha,
+                     "unpublished": True},
             runtime_name="agno", native_run_id=scope.run_id or "",
             harness_release=harness_release,
         )
