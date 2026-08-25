@@ -549,6 +549,69 @@ def _load_session_adjudication(
     return data if isinstance(data, dict) else None
 
 
+_APPROVE_EXECUTE_MARKERS = (
+    "approve_execute",
+    "approve-build",
+    "approve_build",
+    "execute the dbt",
+    "executing the dbt",
+    "chatbi_dbt_execute",
+    "dbt 构建",
+    "执行 dbt",
+    "批准：执行",
+    "作为负责人批准",
+)
+
+
+def _adjudication_approves_execute(adj: Mapping[str, Any] | None) -> bool:
+    """True when the session pin is an owner execute/publish go-ahead.
+
+    Distinct from a caliber pin (15 vs 17). Chat text and structured
+    flags both count — the live operator said 「作为负责人批准：执行 dbt」
+    and the agent stored it as operator-adjudication, which previously
+    did not satisfy dbt_execute's per-run review PASS (REV-001).
+    """
+    if not isinstance(adj, Mapping) or not adj:
+        return False
+    if adj.get("approve_execute") is True or adj.get("action") == "approve_execute":
+        return True
+    blob = " ".join(
+        str(adj.get(k) or "")
+        for k in ("action", "adjudication", "content", "scope",
+                  "evidence_source", "kind")
+    ).lower()
+    return any(m.lower() in blob for m in _APPROVE_EXECUTE_MARKERS)
+
+
+def _session_model_candidate_shas(
+    evidence_index: Any, session_id: str, workspace_root: Path,
+) -> frozenset[str]:
+    """Unpublished model-candidate content SHAs recorded in this session."""
+    if not evidence_index or not session_id:
+        return frozenset()
+    try:
+        rows = evidence_index.lookup(session_id=session_id) or []
+    except Exception:  # noqa: BLE001
+        return frozenset()
+    shas: set[str] = set()
+    root = Path(workspace_root)
+    for row in rows:
+        try:
+            path = root / row.path
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError, AttributeError):
+            continue
+        if not isinstance(data, Mapping):
+            continue
+        if data.get("evidence_source") != "model-candidate":
+            continue
+        payload = data.get("payload") or {}
+        sha = payload.get("content_sha256") if isinstance(payload, Mapping) else None
+        if isinstance(sha, str) and sha:
+            shas.add(sha)
+    return frozenset(shas)
+
+
 def _record_evidence_file(
     *,
     scope: RunScope,
@@ -1091,6 +1154,8 @@ def _build_domain_hook(
                 else {"content": content}
             )
             payload.setdefault("kind", "operator-adjudication")
+            if _adjudication_approves_execute(payload):
+                payload["approve_execute"] = True
             entry = EvidenceEntry.create(
                 source_tier="T2",
                 evidence_source="operator-adjudication",
@@ -1227,6 +1292,27 @@ def _build_domain_hook(
         run_id = scope.run_id or "run"
         frozen_sha = _frozen_candidate_sha(scope, event_log, run_id)
         requested_sha = str(args.get("candidate_sha") or "")
+        adj = getattr(scope, "session_adjudication", None)
+        if adj is None and scope.session_id:
+            adj = _load_session_adjudication(workspace_root, scope.session_id)
+            if adj:
+                scope.session_adjudication = adj
+        if _adjudication_approves_execute(adj) and frozen_sha:
+            draft_shas = set(getattr(scope, "draft_model_shas", None) or ())
+            draft_shas.update(_session_model_candidate_shas(
+                evidence_index, scope.session_id or "", workspace_root))
+            if frozen_sha in draft_shas:
+                return _deny_raw(
+                    name, rule_ids=("REV-001", "HOOK-004"),
+                    reason=("owner already approved execute; unpublished "
+                            "model-draft SHA must not consume analysis "
+                            "review (session aae65abe: continue-build "
+                            "re-reviewed DWD SQL instead of dbt_execute)"),
+                    recovery=("Do not chatbi_review unpublished SQL. Call "
+                              "chatbi_dbt_execute(operation=run, "
+                              "select=<comma-separated model names>) "
+                              "using this session's drafts, then analyze "
+                              "from the built models"))
         if not frozen_sha:
             return _deny_raw(
                 name, rule_ids=("REV-001", "HOOK-004"),
@@ -2388,7 +2474,10 @@ def _build_domain_hook(
         # model-candidate evidence is NOT appended to the analyze tier chain
         # (the delivery gate reads only the 4 tier sources); the generic
         # workflows (maintain-model / bfr) see it via _run_evidence_sources.
-        _record(name, "dbt_draft", entry)
+        # Filename includes the content prefix: a single run drafting N
+        # models used to overwrite evidence-dbt_draft-<run8>.json so only
+        # the last SHA survived (session aae65abe: 32 SQL, 1 evidence row).
+        _record(name, f"dbt_draft-{sha[:8]}", entry)
         out = func(**args)
         if isinstance(out, Mapping):
             return {**dict(out), "drafted": True,
@@ -2446,17 +2535,46 @@ def _build_domain_hook(
         # sha must be among this run's review.completed(PASS) candidate
         # shas — deterministic binding (the draft -> review -> execute chain
         # is the ONLY execution path; no --force channel).
-        reviewed = _reviewed_candidate_shas(event_log, scope.run_id or "run")
+        #
+        # Session-isolation (A–E follow-up): when the operator recorded
+        # approve_execute on this session, unpublished model-candidate
+        # SHAs from the SAME session satisfy the bind. Analysis-shaped
+        # review PASS of a delivery JSON never matched file SHAs, so a
+        # human 「批准执行 dbt」 was ignored (session aae65abe).
+        reviewed = set(_reviewed_candidate_shas(event_log, scope.run_id or "run"))
+        adj = getattr(scope, "session_adjudication", None)
+        if adj is None and scope.session_id:
+            adj = _load_session_adjudication(workspace_root, scope.session_id)
+            if adj:
+                scope.session_adjudication = adj
+        owner_execute = _adjudication_approves_execute(adj)
+        if owner_execute:
+            # Owner pin replaces per-run analysis review PASS. Bind is the
+            # files already resolved under ws/models (hit_files). Do not
+            # require a review.completed(PASS) of each SQL SHA — that path
+            # is analysis-shaped and was the aae65abe stall.
+            reviewed.update(getattr(scope, "draft_model_shas", None) or ())
+            reviewed.update(_session_model_candidate_shas(
+                evidence_index, scope.session_id or "", workspace_root))
+            reviewed.update(
+                compute_candidate_sha(hit.read_text(encoding="utf-8"))
+                for hit in hit_files)
         for hit in hit_files:
             file_sha = compute_candidate_sha(hit.read_text(encoding="utf-8"))
             if file_sha not in reviewed:
+                recovery = (
+                    "Use chatbi_dbt_draft, then either complete a "
+                    "chatbi_review PASS on the exact SQL file content "
+                    "OR record chatbi_record_evidence("
+                    "kind=operator-adjudication, "
+                    "content.approve_execute=true) after the owner "
+                    "approves the build"
+                )
                 return _deny_raw(
                     name, rule_ids=("REV-001",),
                     reason=f"model {hit.name} has no review PASS for its "
                            "exact content (deterministic binding, REV-001)",
-                    recovery="Use chatbi_dbt_draft to submit the candidate "
-                             "and complete a chatbi_review PASS before "
-                             "executing")
+                    recovery=recovery)
         if native_runner is None:
             return _deny_raw(
                 name, rule_ids=("HOOK-004",),
