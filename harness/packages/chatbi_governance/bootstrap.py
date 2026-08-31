@@ -93,7 +93,12 @@ def build_mysql_adapter_spec(
             rule_ids=("HOOK-004",),
             evidence_ref="bootstrap:mysql-spec:host",
             reason="MySQL host must be a non-empty string",
-            recovery="Provide a non-empty MySQL host",
+            recovery=(
+                "Provide a non-empty MySQL host; pass the connection fields "
+                "FLAT in the spec — do NOT nest them under a 'mysql' key, e.g. "
+                '{"host": "127.0.0.1", "port": 3306, "user": "root", '
+                '"database": "public"}'
+            ),
         )
     # port: int (not bool), 1 <= port <= 65535. bool is a subclass of int and
     # is rejected explicitly to avoid silent truthy coercion.

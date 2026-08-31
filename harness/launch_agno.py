@@ -106,20 +106,10 @@ def build_app():
     # workspace-scoped FileTools bundle to the governed agent. The allowlist
     # hook maps file_tools -> Read so the bundle passes; save/delete stay
     # disabled (the agent holds NO bare write surface).
-    from agno.tools.file import FileTools
+    from runtimes.agno.file_scope import build_main_agent_file_tools
 
     agent = components["agent"]
-    agent.tools = list(agent.tools) + [FileTools(
-        base_dir=WS,
-        enable_save_file=False,
-        enable_delete_file=False,
-        enable_read_file=True,
-        enable_list_files=True,
-        enable_search_files=True,
-        enable_search_content=True,
-        enable_read_file_chunk=False,
-        enable_replace_file_chunk=False,
-    )]
+    agent.tools = list(agent.tools) + [build_main_agent_file_tools(WS)]
     return app, components
 
 

@@ -78,17 +78,94 @@ _READ_ONLY_FILE_TOOLS = {
 }
 
 
+_REVIEWER_ALLOWED_PREFIXES = (
+    "models/",
+    "semantic/",
+    "docs/org/",
+)
+
+_REVIEWER_DENY = (
+    "Error: path outside the reviewer's read allowlist "
+    "(models/, semantic/, docs/org/, .chatbi/runs/<this-session>/)"
+)
+
+
+def compact_review_context(review_context: Mapping[str, Any]) -> dict[str, Any]:
+    """Drop bulky session adjudication before the independent Agent.run.
+
+    The live runner dumps this mapping as the user message. A full
+    operator-adjudication dict re-inflates T3/T4 chat into the reviewer
+    prompt (P1). Keep identity + authority; shrink adjudication to flags.
+    """
+    allowed = (
+        "task", "candidate_sha", "reviewer_context_hash", "run_id",
+        "session_id", "round", "candidate_kind", "authority",
+        "evidence_refs",
+    )
+    out: dict[str, Any] = {}
+    for key in allowed:
+        if key in review_context:
+            out[key] = review_context[key]
+    adj = review_context.get("session_adjudication")
+    if isinstance(adj, Mapping):
+        out["session_adjudication"] = {
+            "approve_execute": bool(adj.get("approve_execute")),
+            "kind": str(adj.get("kind") or "")[:64],
+        }
+    return out
+
+
+def reviewer_rel_allowed(rel: str, *, session_id: str = "") -> bool:
+    """True when a workspace-relative path is in the reviewer allowlist."""
+    rel = rel.replace("\\", "/").strip()
+    while rel.startswith("./"):
+        rel = rel[2:]
+    rel = rel.lstrip("/")
+    if not rel or rel == ".":
+        return False
+    prefixes = list(_REVIEWER_ALLOWED_PREFIXES)
+    if session_id:
+        prefixes.append(f".chatbi/runs/{session_id}/")
+        try:
+            prefixes.append(f".chatbi/runs/{_safe_session_id(session_id)}/")
+        except ValueError:
+            pass
+    for prefix in prefixes:
+        allowed = prefix.rstrip("/")
+        if rel == allowed or rel.startswith(allowed + "/"):
+            return True
+        if allowed.startswith(rel + "/"):
+            return True
+    return False
+
+
 def _make_scoped_file_tools(workspace_root: Path | None) -> Any:
     from agno.tools.file import FileTools
 
     class _Scoped(FileTools):  # type: ignore[misc]
+        def _rel(self, path: Path) -> str:
+            try:
+                return (
+                    Path(path).resolve()
+                    .relative_to(Path(self.base_dir).resolve())
+                    .as_posix()
+                )
+            except (OSError, ValueError):
+                return ""
+
         def _is_excluded(self, path: Path) -> bool:  # noqa: N802
             if super()._is_excluded(path):
                 return True
-            return is_foreign_session_evidence(
+            if is_foreign_session_evidence(
                 path, workspace_root=self.base_dir,
                 session_id=_reviewer_session_id.get() or "",
-            )
+            ):
+                return True
+            rel = self._rel(path)
+            if not rel:
+                return True
+            return not reviewer_rel_allowed(
+                rel, session_id=_reviewer_session_id.get() or "")
 
         def read_file(self, file_name: str, encoding: str = "utf-8") -> str:
             safe, file_path = self.check_escape(file_name)
@@ -103,6 +180,10 @@ def _make_scoped_file_tools(workspace_root: Path | None) -> Any:
                     "not a review authority (foreign_session_evidence="
                     "not_canonical)"
                 )
+            rel = self._rel(file_path)
+            if not reviewer_rel_allowed(
+                    rel, session_id=_reviewer_session_id.get() or ""):
+                return _REVIEWER_DENY
             return super().read_file(file_name, encoding=encoding)
 
     return _Scoped(
@@ -239,7 +320,8 @@ def _default_reviewer_runner(agent: Any) -> ReviewerRunner:
             str(review_context.get("session_id") or ""))
         try:
             response = agent.run(
-                json.dumps(review_context, ensure_ascii=False, sort_keys=True)
+                json.dumps(compact_review_context(review_context),
+                           ensure_ascii=False, sort_keys=True)
             )
         finally:
             _reviewer_session_id.reset(token)
@@ -324,7 +406,7 @@ def build_review_tool(
                 if isinstance(e, Mapping)
             ],
         }
-        verdict = runner(context)
+        verdict = runner(compact_review_context(context))
         result: dict[str, Any] = {
             "tool": "chatbi_review",
             "status": "requested",

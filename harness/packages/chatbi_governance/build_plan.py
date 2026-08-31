@@ -22,7 +22,7 @@ import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any, Iterable, Mapping, Sequence
 
 from .gates import GateDecision, GateError, _sanitize_text  # noqa: E402 (sanctioned reuse, mirrors impact.py:24)
 from .bootstrap import (  # noqa: E402 (Q4: reader+merge live in bootstrap.py)
@@ -583,14 +583,27 @@ def validate_layer_dependency(
 
 
 def append_model_registry(path: Path, entry: ModelEntry) -> Path:
-    """Append one :class:`ModelEntry` to ``.chatbi/model_registry.json`` (create
-    if absent). Called by maintain-model ONLY after sync gate + stop_gate pass
+    """Append one :class:`ModelEntry` to ``.chatbi/model_registry.json``.
+
+    Delegates to :func:`append_model_registry_many` (single-item batch) so
+    the on-disk atomic write stays one code path.
+    """
+    return append_model_registry_many(path, [entry])
+
+
+def append_model_registry_many(
+    path: Path, entries: Sequence[ModelEntry],
+) -> Path:
+    """Append one or more :class:`ModelEntry` values in one atomic write.
+
+    Called by maintain-model ONLY after sync gate + stop_gate pass
     (DOC-004/HOOK-001 - a failed-sync model is NOT recorded, fail-closed).
 
     Atomic temp+rename mirroring :func:`chatbi_governance.harness_state.write_state`
     discipline (``harness_state.py:104-122``, ``0o600``). Idempotent on
     ``(name, created_rev)`` (v1 = append-with-history; a rebuild at a new rev
-    keeps both entries). Returns the registry path.
+    keeps both entries). Empty ``entries`` is a no-op that still validates
+    an existing file. Returns the registry path.
 
     Cannot reuse :func:`chatbi_governance.harness_state.write_state` directly: that
     function is path-constrained to ``.chatbi/runs/<session_id>/<name>.json``
@@ -640,18 +653,22 @@ def append_model_registry(path: Path, entry: ModelEntry) -> Path:
     else:
         data = {"schema_version": _SCHEMA_VERSION, "models": []}
         models = data["models"]
-    # --- Idempotency: skip if (name, created_rev) already recorded ---
-    for existing in models:
-        if (
-            isinstance(existing, dict)
-            and existing.get("name") == entry.name
-            and existing.get("created_rev") == entry.created_rev
-        ):
-            return path  # already recorded, no rewrite
-    # --- Append (v1: append-with-history) ---
-    # Build a new list (does not mutate the on-disk list in place).
+    existing_keys = {
+        (existing.get("name"), existing.get("created_rev"))
+        for existing in models
+        if isinstance(existing, dict)
+    }
     new_models = list(models)
-    new_models.append(entry.to_dict())
+    appended = False
+    for entry in entries:
+        key = (entry.name, entry.created_rev)
+        if key in existing_keys:
+            continue
+        new_models.append(entry.to_dict())
+        existing_keys.add(key)
+        appended = True
+    if not appended:
+        return path
     data["models"] = new_models
     # --- Atomic write (mirror harness_state.write_state:106-122) ---
     path.parent.mkdir(parents=True, exist_ok=True)

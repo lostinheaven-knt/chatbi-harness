@@ -88,6 +88,7 @@ from chatbi_governance.bootstrap import (
 )
 from chatbi_governance.build_plan import (
     append_model_registry,
+    append_model_registry_many,
     build_model_entry,
     validate_build_plan,
     validate_layer_dependency,
@@ -172,8 +173,11 @@ def _clarify_request_decision(decision: GateDecision) -> GateDecision:
         recovery = (
             "time_range is required, format 'YYYY-MM-DD_to_YYYY-MM-DD' "
             "(e.g. '2024-01-01_to_2024-01-31'). If the user did not specify "
-            "an analysis window, ASK the user for it (REQ-001 clarify); "
-            "never guess or send an empty value."
+            "an analysis window, use time_range='latest_available_day' "
+            "(no temporal scope) and ASK the user only if a calendar window "
+            "would change the answer (REQ-001 clarify); never invent a "
+            "concrete window (e.g. '2024-06-01_to_2024-06-30') without a "
+            "user or data basis; never guess or send an empty value."
         )
     if recovery == (decision.recovery or ""):
         return decision
@@ -209,6 +213,201 @@ _SKILL_TOOL_RECOVERY = (
 #: derived, candidate-SHA independent), PASS does not reset the budget, and
 #: budgets never carry across runs (multi-turn dialogue semantics).
 REVIEW_BLOCK_LIMIT = 3
+_FILE_TOOLS = frozenset({
+    "read_file", "list_files", "search_files", "search_content",
+    "read_file_chunk",
+})
+_FILE_SEARCH_TOOLS = frozenset({
+    "list_files", "search_files", "search_content",
+})
+_WINDOW_RE = re.compile(
+    r"^(\d{4}-\d{2}-\d{2})_to_(\d{4}-\d{2}-\d{2})$")
+_DATE_RE = re.compile(r"\b(\d{4}-\d{2}-\d{2})\b")
+
+
+_EVIDENCE_HEX_RE = re.compile(r"evidence:([0-9a-fA-F]{8,64})")
+_MODEL_PATH_RE = re.compile(r"\bmodels/[A-Za-z0-9_./-]+\.(?:sql|yml)\b")
+_ALIAS_PATH_RE = re.compile(r"\b[a-z][a-z0-9_-]+:[A-Za-z0-9_./-]+")
+_DRAFT_LAYERS = frozenset({"ods", "dwd", "dws", "ads", "dim"})
+
+
+def _normalize_dbt_draft_rel(relative_path: str) -> str:
+    """Prefix a missing ``models/`` when the first segment is a warehouse layer.
+
+    Live opt4c/opt4d T3 drafted ``ods/ods_*.sql`` (plan only has name+layer) and
+    hit 23 fail-closed denials; hotfix used ``models/{layer}/{name}.sql``.
+    Traversal, absolute paths, ``semantic/``, and non-layer roots stay as-is
+    so the existing deny still fires.
+    """
+    parts = [p for p in Path(relative_path).parts if p not in (".", "")]
+    if not parts or any(p == ".." for p in parts):
+        return relative_path
+    if parts[0] == "models":
+        return Path(*parts).as_posix()
+    if parts[0] in _DRAFT_LAYERS:
+        return Path("models", *parts).as_posix()
+    return Path(*parts).as_posix()
+
+
+def _model_draft_rel(name: str, layer: str) -> str:
+    return f"models/{layer}/{name}.sql"
+
+
+def cited_evidence_hex_refs(content: Any) -> list[str]:
+    """``evidence:<hex>`` citations in a frozen Analysis Answer.
+
+    P1-opt2: session ``bce8089e`` burned a full independent review because the
+    footer cited ``evidence:8e035e77`` which is not any recorded
+    ``content_sha256`` prefix. Catch that at submit (zero reviewer cost).
+    """
+    try:
+        blob = content if isinstance(content, str) else json.dumps(
+            content, ensure_ascii=False, default=str)
+    except (TypeError, ValueError):
+        return []
+    seen: list[str] = []
+    for hit in _EVIDENCE_HEX_RE.findall(blob):
+        key = hit.lower()
+        if key not in seen:
+            seen.append(key)
+    return seen
+
+
+def unresolved_evidence_hex_refs(
+    content: Any,
+    *,
+    evidence_chain: tuple[Mapping[str, Any], ...] | list[Mapping[str, Any]] = (),
+    evidence_index: Any = None,
+    session_id: str = "",
+) -> list[str]:
+    """Hex citations that do not prefix any recorded content_sha256."""
+    cited = cited_evidence_hex_refs(content)
+    if not cited:
+        return []
+    known: set[str] = set()
+    for entry in evidence_chain or ():
+        if not isinstance(entry, Mapping):
+            continue
+        sha = str(entry.get("content_sha256") or "")
+        if sha:
+            known.add(sha.lower())
+        payload = entry.get("payload")
+        if isinstance(payload, Mapping):
+            inner = str(payload.get("content_sha256") or "")
+            if inner:
+                known.add(inner.lower())
+    if evidence_index is not None:
+        try:
+            rows = evidence_index.lookup(run_id=None)
+        except Exception:  # noqa: BLE001
+            rows = ()
+        for row in rows or ():
+            if session_id:
+                owner = str(getattr(row, "session_id", "") or "")
+                if owner and owner != session_id:
+                    continue
+            sha = str(getattr(row, "content_sha256", "") or "")
+            if sha and sha != "<unreadable>":
+                known.add(sha.lower())
+    unresolved: list[str] = []
+    for ref in cited:
+        if not any(sha.startswith(ref) for sha in known):
+            unresolved.append(ref)
+    return unresolved
+
+
+def locatable_provenance_refs(content: Any) -> list[str]:
+    """ANS-002 locatable citations: models/**, evidence:<hex>, or alias:path.
+
+    Live 9f48465e burned a full independent review because the first footer
+    had tier/round/freshness/owner/confidence but no openable reference.
+    Catch that at submit (zero reviewer cost).
+    """
+    try:
+        blob = content if isinstance(content, str) else json.dumps(
+            content, ensure_ascii=False, default=str)
+    except (TypeError, ValueError):
+        return []
+    found: list[str] = []
+    for hit in _MODEL_PATH_RE.findall(blob):
+        if hit not in found:
+            found.append(hit)
+    for hit in cited_evidence_hex_refs(blob):
+        key = f"evidence:{hit}"
+        if key not in found:
+            found.append(key)
+    for hit in _ALIAS_PATH_RE.findall(blob):
+        if hit.startswith("evidence:"):
+            continue
+        if hit not in found:
+            found.append(hit)
+    return found
+
+
+def missing_locatable_provenance(content: Any) -> bool:
+    return not locatable_provenance_refs(content)
+
+
+def _known_evidence_prefixes(
+    evidence_chain: tuple[Mapping[str, Any], ...] | list[Mapping[str, Any]],
+    *,
+    limit: int = 4,
+) -> str:
+    prefixes: list[str] = []
+    for entry in evidence_chain or ():
+        if not isinstance(entry, Mapping):
+            continue
+        sha = str(entry.get("content_sha256") or "")
+        if len(sha) >= 8:
+            prefixes.append(sha[:8])
+        if len(prefixes) >= limit:
+            break
+    return ", ".join(f"evidence:{p}" for p in prefixes) or "(none recorded this run)"
+
+
+def candidate_dates_outside_window(time_range: str, content: Any) -> list[str]:
+    """Dates in the frozen candidate that fall outside request.time_range.
+
+    P1: a fabricated window (e.g. 2024-06-01_to_2024-06-30) vs an Analysis
+    Answer dated 2026-07-28 used to cost a full live reviewer round (E8).
+    ``latest_available_day`` and non-window ranges skip this check.
+    """
+    raw = str(time_range or "").strip()
+    match = _WINDOW_RE.match(raw)
+    if not match:
+        return []
+    start, end = match.group(1), match.group(2)
+    if start > end:
+        start, end = end, start
+    try:
+        blob = content if isinstance(content, str) else json.dumps(
+            content, ensure_ascii=False, default=str)
+    except (TypeError, ValueError):
+        return []
+    outside: list[str] = []
+    seen: set[str] = set()
+    for hit in _DATE_RE.findall(blob):
+        if hit in seen:
+            continue
+        seen.add(hit)
+        if hit < start or hit > end:
+            outside.append(hit)
+    return outside
+
+
+def _frozen_candidate_content(scope: RunScope) -> Any:
+    content = getattr(scope, "candidate_content", None)
+    if content is not None:
+        return content
+    for entry in reversed(getattr(scope, "evidence_chain", ()) or ()):
+        if not isinstance(entry, Mapping):
+            continue
+        if entry.get("evidence_source") != "candidate-bind":
+            continue
+        payload = entry.get("payload") if isinstance(entry.get("payload"), Mapping) else {}
+        if "content" in payload:
+            return payload.get("content")
+    return None
 
 #: dbt-run evidence log tail cap (2 KiB, design §6.2 step 5).
 _LOG_TAIL_CAP = 2048
@@ -494,10 +693,47 @@ def _sanitize_args(value: Any, *, tool_name: str = "") -> Any:
     return _walk(value)
 
 
+def _approval_evidence_refs(
+    evidence_chain: Any, workspace_root: Path,
+) -> tuple[str, ...]:
+    """Refs for ApprovalRecord: relative path when known, else source label.
+
+    PORT-001: never persist a machine-absolute path. Label-only refs are
+    still valid because ``match_evidence_refs`` matches Evidence JSON
+    ``evidence_source``.
+    """
+    out: list[str] = []
+    seen: set[str] = set()
+    for entry in evidence_chain or ():
+        if not isinstance(entry, Mapping):
+            continue
+        path = entry.get("path") or (entry.get("payload") or {}).get("path")
+        ref = ""
+        if isinstance(path, str) and path and not _is_absolute_path(path):
+            ref = path
+        else:
+            source = entry.get("evidence_source")
+            if isinstance(source, str) and source:
+                ref = source
+        if not ref or ref in seen:
+            continue
+        seen.add(ref)
+        out.append(ref)
+    return tuple(out)
+
+
 def _is_absolute_path(value: str) -> bool:
     if value.startswith("/") or bool(re.match(r"^[A-Za-z]:[\\/]", value)):
         return True
     return Path(value).is_absolute()
+
+
+_SEM001_GAP_RECOVERY = (
+    "Call chatbi_semantic_discover first (empty warehouse records a T1 "
+    "gap). Then chatbi_record_evidence(tier=T2) only after that T1 gap. "
+    "Then chatbi_query_source(tier=T3). Do not query T3 or record T2 "
+    "before the matching gap."
+)
 
 
 def _deny_payload(
@@ -507,9 +743,10 @@ def _deny_payload(
     evidence_refs: tuple[str, ...] = (),
     reason: str,
     recovery: str,
+    detail: str = "",
 ) -> dict[str, Any]:
     """Standard deny payload (tool.blocked shape, CC-同构)."""
-    return {
+    payload = {
         "status": "blocked",
         "tool": name,
         "rule_ids": list(rule_ids),
@@ -517,6 +754,9 @@ def _deny_payload(
         "reason": _sanitize_text(reason),
         "recovery": _sanitize_text(recovery),
     }
+    if detail:
+        payload["detail"] = _sanitize_text(detail)[:_LOG_TAIL_CAP]
+    return payload
 
 
 def _emit_tool_blocked(
@@ -744,9 +984,17 @@ def build_tool_hooks(
                     scope.session_adjudication = None
                     if hasattr(scope, "draft_model_shas"):
                         scope.draft_model_shas.clear()
+                    # P1-opt4: FileTools lock is session-scoped so T2
+                    # build_plan still blocks T3 read_file wander. A new
+                    # session (wipe/replay) must start unlocked.
+                    if hasattr(scope, "file_sql_locked"):
+                        scope.file_sql_locked = False
+                    if hasattr(scope, "bootstrap_run_id"):
+                        scope.bootstrap_run_id = ""
                 scope.evidence_chain.clear()
                 scope.review_round = 1
                 scope.candidate_sha = ""
+                scope.candidate_content = None
                 scope.impact = None
                 if hasattr(scope, "loaded_runbooks"):
                     scope.loaded_runbooks.clear()
@@ -763,6 +1011,17 @@ def build_tool_hooks(
                     workspace_root, scope.session_id)
                 if loaded:
                     scope.session_adjudication = loaded
+        # HITL continue does not re-run pre-hooks: restore the trusted
+        # subject from run_context.user_id or the process-level pin
+        # (SEC-003 — never fabricate a literal).
+        subject = run_subject.get()
+        if not subject and run_context is not None:
+            subject = getattr(run_context, "user_id", "") or ""
+        if not subject:
+            subject = getattr(scope, "trusted_subject", "") or ""
+        if subject:
+            run_subject.set(subject)
+            scope.trusted_subject = subject
         clean = _sanitize_args(dict(args), tool_name=name)
         return func(**clean)
 
@@ -880,10 +1139,8 @@ def build_tool_hooks(
                 action_type=action_type,
                 requester_subject=requester,
                 candidate_sha=candidate_sha,
-                evidence_refs=tuple(
-                    e.get("evidence_source", "")
-                    for e in scope.evidence_chain if isinstance(e, Mapping)
-                ),
+                evidence_refs=_approval_evidence_refs(
+                    scope.evidence_chain, workspace_root),
             )
         except Exception as error:  # policy block (SEM-003) etc.
             rule_ids = ("SEM-003", "DOC-004")
@@ -1054,10 +1311,11 @@ def _build_domain_hook(
         return payload
 
     def _deny_raw(name: str, *, rule_ids: tuple[str, ...], reason: str,
-                  recovery: str, evidence_refs: tuple[str, ...] = ()) -> dict:
+                  recovery: str, evidence_refs: tuple[str, ...] = (),
+                  detail: str = "") -> dict:
         payload = _deny_payload(name, rule_ids=rule_ids,
                                 evidence_refs=evidence_refs, reason=reason,
-                                recovery=recovery)
+                                recovery=recovery, detail=detail)
         _emit_tool_blocked(event_log, scope, name, payload)
         return payload
 
@@ -1067,6 +1325,13 @@ def _build_domain_hook(
                               harness_release=harness_release,
                               entry=entry, step_id=step_id)
         _emit_evidence_recorded(event_log, scope, entry)
+
+    def _unique_tier_step(prefix: str, entry: EvidenceEntry) -> str:
+        """Per-payload filename so N queries/records in one run do not
+        overwrite ``evidence-t2_curated-<run8>.json`` (opt4c ``4d30916e``:
+        later queries erased earlier result sets; the reviewer then
+        BLOCKED RAW-003 on footer hexes that events had recorded)."""
+        return f"{prefix}-{entry.content_sha256[:8]}"
 
     def _request() -> dict[str, Any]:
         return dict(scope.request or {})
@@ -1207,8 +1472,7 @@ def _build_domain_hook(
                     f"{'T1' if tier == 'T2' else 'T2'} gap; no gap evidence "
                     "was recorded (SEM-001)"
                 ),
-                recovery="Record the upper-tier gap evidence first, or stay "
-                         "on the covered tier")
+                recovery=_SEM001_GAP_RECOVERY)
         payload: dict[str, Any] = (
             dict(content) if isinstance(content, Mapping)
             else {"content": content}
@@ -1221,7 +1485,7 @@ def _build_domain_hook(
         )
         scope.evidence_chain.append(entry.to_dict())
         step_id = {"T1": "t1_semantic", "T2": "t2_curated", "T3": "t3_raw"}[tier]
-        _record(name, step_id, entry)
+        _record(name, _unique_tier_step(step_id, entry), entry)
         result = func(**args)
         if isinstance(result, Mapping):
             return {**dict(result), "evidence_source": _TIER_SOURCE[tier],
@@ -1248,7 +1512,48 @@ def _build_domain_hook(
             return _deny_raw(name, rule_ids=("SEC-003", "HOOK-001"),
                              reason=f"candidate is not JSON-serializable: {error}",
                              recovery="Provide a JSON-serializable candidate")
+        unresolved = unresolved_evidence_hex_refs(
+            content,
+            evidence_chain=tuple(scope.evidence_chain or ()),
+            evidence_index=evidence_index,
+            session_id=scope.session_id or "",
+        )
+        if unresolved:
+            known = _known_evidence_prefixes(scope.evidence_chain or ())
+            return _deny_raw(
+                name, rule_ids=("ANS-002", "HOOK-004"),
+                reason=(
+                    "candidate cites unresolvable evidence refs "
+                    + ", ".join(f"evidence:{r}" for r in unresolved[:5])
+                    + "; do not invoke the independent reviewer on a "
+                    "fabricated provenance footer (P1-opt2 bce8089e)"
+                ),
+                recovery=(
+                    "Replace each evidence:<hex> with a content_sha256 "
+                    "prefix recorded this run, e.g. "
+                    + known
+                    + ", or drop the citation; then chatbi_submit_candidate "
+                    "again. Do not chatbi_review until submit succeeds"
+                ))
+        if missing_locatable_provenance(content):
+            known = _known_evidence_prefixes(scope.evidence_chain or ())
+            return _deny_raw(
+                name, rule_ids=("ANS-002", "HOOK-004"),
+                reason=(
+                    "provenance_footer has no locatable reference "
+                    "(models/**.sql, evidence:<sha>, or alias:path); "
+                    "do not invoke the independent reviewer on a "
+                    "metadata-only footer (P1-opt4b 9f48465e ANS-002)"
+                ),
+                recovery=(
+                    "Append locatable refs to provenance_footer, e.g. "
+                    "models/ads/ads_feature_usage_daily.sql and "
+                    + known
+                    + ", then chatbi_submit_candidate again. Do not "
+                    "chatbi_review until submit succeeds"
+                ))
         scope.candidate_sha = sha
+        scope.candidate_content = content
         entry = EvidenceEntry.create(
             source_tier="T2", evidence_source="candidate-bind",
             rule_ids=("REV-001",),
@@ -1331,6 +1636,24 @@ def _build_domain_hook(
                           "review, then chatbi_review with that "
                           "candidate_sha — do not invent or reuse a SHA "
                           "from another file or run"))
+        window = str((scope.request or {}).get("time_range") or "")
+        frozen_content = _frozen_candidate_content(scope)
+        outside = candidate_dates_outside_window(window, frozen_content)
+        if outside:
+            return _deny_raw(
+                name, rule_ids=("REQ-001", "HOOK-004"),
+                reason=(
+                    "frozen candidate dates "
+                    + ", ".join(outside[:5])
+                    + f" fall outside request.time_range={window!r}; "
+                    "do not invoke the independent reviewer on a mismatched "
+                    "window (P1 E8)"
+                ),
+                recovery=(
+                    "Re-submit with time_range='latest_available_day' or a "
+                    "window that covers every YYYY-MM-DD in the Analysis "
+                    "Answer, then chatbi_review"
+                ))
         candidate_sha = frozen_sha
         emit_standard_event(
             event_log, run_id=scope.run_id or "run",
@@ -1596,7 +1919,7 @@ def _build_domain_hook(
                 entries.append(build_model_entry(
                     name=str(raw.get("name", "")),
                     layer=str(raw.get("layer", "dwd")),
-                    change_kind=str(raw.get("change_kind", "create")),
+                    change_kind=str(raw.get("change_kind") or "model"),
                     created_rev=harness_release,
                     owner=str(raw.get("owner",
                                       req.get("actor", "operator"))),
@@ -1627,11 +1950,39 @@ def _build_domain_hook(
             harness_release=harness_release,
         )
         _record(name, "build_plan", plan_entry)
+        scope.file_sql_locked = True
         result = func(**args)
+        on_bootstrap_run = (
+            bool(getattr(scope, "bootstrap_run_id", ""))
+            and scope.run_id == scope.bootstrap_run_id
+        )
+        models_out = []
+        for entry in entries:
+            row = entry.to_dict()
+            row["relative_path"] = _model_draft_rel(entry.name, entry.layer)
+            models_out.append(row)
+        if on_bootstrap_run:
+            next_step = (
+                "STOP this turn. Present the plan and wait for the operator "
+                "to confirm caliber in a later message. Do not call "
+                "chatbi_dbt_draft, chatbi_dbt_execute, chatbi_query_source, "
+                "chatbi_submit_candidate, or chatbi_review until then."
+            )
+        else:
+            next_step = (
+                "In THIS assistant turn, call chatbi_dbt_draft once per "
+                "planned model (parallel ok) using that model's "
+                "relative_path (models/{layer}/{name}.sql). Never omit the "
+                "models/ prefix. Do not call FileTools, chatbi_crosscheck, "
+                "or chatbi_record_evidence before every planned model is "
+                "drafted. Do not chatbi_dbt_execute until the operator "
+                "approves the build."
+            )
         if isinstance(result, Mapping):
-            return {**dict(result), "build_plan": {
-                "models": [entry.to_dict() for entry in entries]}}
-        return result
+            return {**dict(result), "build_plan": {"models": models_out},
+                    "next": next_step}
+        return {"status": "ok", "build_plan": {"models": models_out},
+                "next": next_step}
 
     # --- chatbi_impact_manifest --------------------------------------------
     def _impact_manifest(name: str, func: Callable[..., Any],
@@ -1691,8 +2042,28 @@ def _build_domain_hook(
 
         request = _request()
         entry_raw = args.get("entry")
-        if isinstance(entry_raw, Mapping):
-            request = {**request, **dict(entry_raw)}
+        entries_raw = args.get("entries")
+        has_entry = isinstance(entry_raw, Mapping) and bool(entry_raw)
+        has_entries = isinstance(entries_raw, list) and bool(entries_raw)
+        if has_entry and has_entries:
+            return _deny_raw(
+                name, rule_ids=("HOOK-004",),
+                reason="registry_append accepts either 'entries' or 'entry', "
+                       "not both",
+                recovery="Pass a single 'entries' array")
+        raw_items: list[Mapping[str, Any]] = []
+        if has_entries:
+            for item in entries_raw:
+                if isinstance(item, Mapping):
+                    raw_items.append(item)
+        elif has_entry:
+            raw_items.append(entry_raw)
+        if not raw_items:
+            return _deny_raw(
+                name, rule_ids=("HOOK-004",),
+                reason="registry_append requires 'entry' or a non-empty "
+                       "'entries' array",
+                recovery="Pass entries=[{target, layer, change_kind, ...}]")
         # DOC-004 sync gate: only after a passing impact manifest.
         impact = getattr(scope, "impact", None) or {}
         if impact and impact.get("has_blocking_drift"):
@@ -1701,32 +2072,37 @@ def _build_domain_hook(
                 reason="DOC-004 sync gate not passed; a failed-sync model is "
                        "not recorded (fail-closed)",
                 recovery="Sync every affected asset and re-run")
+        built = []
         try:
-            entry = build_model_entry(
-                name=str(request.get("target", "")),
-                layer=str(request.get("layer", "dwd")),
-                change_kind=str(request.get("change_kind", "create")),
-                created_rev=harness_release,
-                owner=str(request.get("actor", "operator")),
-                upstream_deps=tuple(request.get("upstream_deps", ()) or ()),
-                join_or_aggregate_summary=str(request.get("summary", "")),
-            )
+            for item in raw_items:
+                merged = {**request, **dict(item)}
+                built.append(build_model_entry(
+                    name=str(merged.get("target", "")),
+                    layer=str(merged.get("layer", "dwd")),
+                    change_kind=str(merged.get("change_kind") or "model"),
+                    created_rev=harness_release,
+                    owner=str(merged.get("actor", "operator")),
+                    upstream_deps=tuple(merged.get("upstream_deps", ()) or ()),
+                    join_or_aggregate_summary=str(merged.get("summary", "")),
+                ))
             registry_path = workspace_root / ".chatbi" / "model_registry.json"
-            append_model_registry(registry_path, entry)
+            append_model_registry_many(registry_path, built)
         except GateError as error:
             return _deny(name, error.decision)
+        names = [e.name for e in built]
         entry = EvidenceEntry.create(
             source_tier="T2", evidence_source="model-registry",
             rule_ids=("DOC-004", "SEM-003"),
-            payload={"appended": True,
-                     "name": str(request.get("target", ""))},
+            payload={"appended": True, "names": names,
+                     "name": names[0] if names else ""},
             runtime_name="agno", native_run_id=scope.run_id or "",
             harness_release=harness_release,
         )
         _record(name, "registry_append", entry)
         result = func(**args)
         if isinstance(result, Mapping):
-            return {**dict(result), "registry_appended": True}
+            return {**dict(result), "registry_appended": True,
+                    "appended_names": names}
         return result
 
     # --- chatbi_lint_reference ---------------------------------------------
@@ -2193,6 +2569,7 @@ def _build_domain_hook(
             harness_release=harness_release,
         )
         _record(name, "bootstrap", entry)
+        scope.bootstrap_run_id = scope.run_id or ""
         out = func(**args)
         if isinstance(out, Mapping):
             return {**dict(out), "bootstrap": {
@@ -2318,9 +2695,7 @@ def _build_domain_hook(
                 reason=f"tier {tier} requires a recorded "
                        f"{'T1' if tier == 'T2' else 'T2'} gap; no gap "
                        "evidence was recorded (SEM-001)",
-                recovery="Record the upper-tier gap evidence first "
-                         "(chatbi_semantic_discover / "
-                         "chatbi_record_evidence)")
+                recovery=_SEM001_GAP_RECOVERY)
         spec = _mysql_adapter_spec()
         if spec is None:
             return _deny_raw(
@@ -2351,11 +2726,17 @@ def _build_domain_hook(
         if not isinstance(result, Mapping) or result.get("status") != "ok":
             category = (result or {}).get("error_category", "unknown") \
                 if isinstance(result, Mapping) else "unknown"
+            log_tail = str((result or {}).get("log_tail", "") or "")[
+                :_LOG_TAIL_CAP] if isinstance(result, Mapping) else ""
             return _deny_raw(
                 name, rule_ids=("HOOK-004",),
                 reason=f"mysql query failed: {category}",
-                recovery="Inspect the mysql CLI error and re-run with a "
-                         "corrected statement")
+                recovery=(
+                    "Fix the SELECT using the mysql CLI output in detail; "
+                    "do not search_files the warehouse for logs. "
+                    + (f"CLI output: {log_tail}" if log_tail else "")
+                ),
+                detail=log_tail)
         rows = result.get("rows") or []
         row_count = int(result.get("row_count", len(rows)) or 0)
         truncated = bool(result.get("truncated", False))
@@ -2374,14 +2755,16 @@ def _build_domain_hook(
             harness_release=harness_release,
         )
         scope.evidence_chain.append(entry.to_dict())
-        _record(name, "t2_curated" if tier == "T2" else "t3_raw", entry)
+        prefix = "t2_curated" if tier == "T2" else "t3_raw"
+        _record(name, _unique_tier_step(prefix, entry), entry)
         out = func(**args)
         if isinstance(out, Mapping):
             return {**dict(out), "query": {
                 "status": "ok", "row_count": row_count,
                 "truncated": truncated, "rows": rows[:200],
                 "untrusted": bool(result.get("untrusted", True)),
-                "statement_sha256": sha}}
+                "statement_sha256": sha,
+                "content_sha256": entry.content_sha256}}
         return out
 
     # --- chatbi_dbt_draft / chatbi_dbt_execute (Phase 2, module B) ---------
@@ -2402,13 +2785,19 @@ def _build_domain_hook(
                 recovery="Provide the model file content as a string")
         rel = Path(relative_path)
         # Absolute path: double insurance (the realpath hook already
-        # rejected it, PORT-001).
+        # rejected it, PORT-001). Traversal stays fail-closed BEFORE
+        # models/ prefixing so ods/../secret.sql cannot sneak in.
         if rel.is_absolute() or any(part == ".." for part in rel.parts):
             return _deny_raw(
                 name, rule_ids=("SEC-001", "PORT-001"),
                 reason="draft path must be workspace-relative with no .. "
                        "traversal (PORT-001)",
                 recovery="Use a models/** relative path")
+        normalized = _normalize_dbt_draft_rel(relative_path)
+        if normalized != relative_path:
+            args = {**dict(args), "relative_path": normalized}
+            relative_path = normalized
+        rel = Path(relative_path)
         if rel.parts and rel.parts[0] == "semantic":
             return _deny_raw(
                 name, rule_ids=("SEM-003", "HOOK-004"),
@@ -2430,11 +2819,15 @@ def _build_domain_hook(
                 recovery="Split the model file below 256 KiB")
         candidate = workspace_root / rel
         try:
+            models_root = (workspace_root / "models").resolve()
             if candidate.exists():
                 resolved = candidate.resolve(strict=True)
-            else:
+            elif candidate.parent.exists():
                 resolved = candidate.parent.resolve(strict=True) / candidate.name
-            models_root = (workspace_root / "models").resolve()
+            else:
+                # First file in a new layer: parent dir is created after
+                # containment. `..` already denied above.
+                resolved = (workspace_root / rel).resolve(strict=False)
             resolved.relative_to(models_root)
         except (OSError, ValueError):
             return _deny_raw(
@@ -2501,7 +2894,10 @@ def _build_domain_hook(
                 reason="dbt select must match ^[a-z0-9_]+(,[a-z0-9_]+)*$ "
                        "(no +/*/path/metacharacters, argv injection "
                        "surface)",
-                recovery="Select one or more model names, comma-separated")
+                recovery=(
+                    "Select one or more model names, comma-separated, e.g. "
+                    '"ads_core_metrics,dwd_orders"; "+ads_..." and "*" '
+                    "are rejected"))
         names = [n for n in select.split(",") if n]
         models_root = workspace_root / "models"
         hit_files: list[Path] = []
@@ -2590,11 +2986,19 @@ def _build_domain_hook(
         if not isinstance(result, Mapping) or result.get("status") != "ok":
             category = (result or {}).get("error_category", "unknown") \
                 if isinstance(result, Mapping) else "unknown"
+            log_tail = str((result or {}).get("log_tail", "") or "")[
+                :_LOG_TAIL_CAP] if isinstance(result, Mapping) else ""
+            scope.file_sql_locked = True
             return _deny_raw(
                 name, rule_ids=("HOOK-004",),
                 reason=f"dbt execution failed: {category}",
-                recovery="Read the dbt log and correct the model or "
-                         "environment")
+                recovery=(
+                    "Fix the SQL/select using the compiler output in "
+                    "detail; do not search_files the warehouse for dbt "
+                    "logs. Use chatbi_dbt_draft then chatbi_dbt_execute. "
+                    + (f"Compiler output: {log_tail}" if log_tail else "")
+                ),
+                detail=log_tail)
         log_tail = str(result.get("log_tail", "") or "")[:_LOG_TAIL_CAP]
         entry = EvidenceEntry.create(
             source_tier="T2", evidence_source="dbt-run",
@@ -2745,7 +3149,7 @@ def _build_domain_hook(
                 harness_release=harness_release,
             )
             scope.evidence_chain.append(entry.to_dict())
-            _record(name, "t1_semantic", entry)
+            _record(name, _unique_tier_step("t1_semantic", entry), entry)
             out = func(**args)
             if isinstance(out, Mapping):
                 return {**dict(out), "discovered": True,
@@ -2764,7 +3168,7 @@ def _build_domain_hook(
             harness_release=harness_release,
         )
         scope.evidence_chain.append(entry.to_dict())
-        _record(name, "t1_semantic", entry)
+        _record(name, _unique_tier_step("t1_semantic", entry), entry)
         out = func(**args)
         if isinstance(out, Mapping):
             return {**dict(out), "discovered": False, "gap": True,
@@ -2824,8 +3228,115 @@ def _build_domain_hook(
         "chatbi_semantic_discover": _semantic_discover,
     }
 
+    def _file_tool_deny(name: str) -> dict[str, Any] | None:
+        if name not in _FILE_TOOLS:
+            return None
+        if getattr(scope, "file_sql_locked", False):
+            return _deny_raw(
+                name, rule_ids=("HOOK-004",),
+                reason=(
+                    "FileTools locked this session after build_plan or a dbt "
+                    "compiler/CLI failure (P1-opt4 T2/T3 wander)"
+                ),
+                recovery=(
+                    "Use chatbi_dbt_draft then chatbi_dbt_execute. Fix SQL "
+                    "from the last dbt/mysql deny detail; do not list_files "
+                    "or search_files the warehouse"
+                ))
+        inventory = (
+            Path(workspace_root) / ".chatbi" / "bootstrap"
+            / "source_inventory.json"
+        )
+        if name in _FILE_SEARCH_TOOLS and inventory.is_file():
+            return _deny_raw(
+                name, rule_ids=("HOOK-004",),
+                reason=(
+                    "source inventory already exists; list/search FileTools "
+                    "are locked (P1-opt3 bd78be2f T3 17-call inventory wander)"
+                ),
+                recovery=(
+                    "Call chatbi_build_plan now, then chatbi_dbt_draft for "
+                    "every planned model in this turn. Do not list_files, "
+                    "search_files, search_content, or chatbi_crosscheck "
+                    "until governed models exist."
+                ))
+        return None
+
+    def _empty_warehouse_sql_models() -> bool:
+        models_root = Path(workspace_root) / "models"
+        if not models_root.is_dir():
+            return True
+        return not any(models_root.rglob("*.sql"))
+
+    def _build_phase_deny(name: str) -> dict[str, Any] | None:
+        # Live 81c76637 T3: inventory existed so the from-zero query deny
+        # did not fire; bootstrap_run_id is T2-only; the model then looped
+        # chatbi_query_source (18 deny + 12 ok) instead of drafting.
+        # Lock query + crosscheck until models/*.sql exist. T4c1 queries
+        # after drafts/execute still pass this check.
+        if name not in ("chatbi_crosscheck", "chatbi_query_source"):
+            return None
+        inventory = (
+            Path(workspace_root) / ".chatbi" / "bootstrap"
+            / "source_inventory.json"
+        )
+        if inventory.is_file() and _empty_warehouse_sql_models():
+            return _deny_raw(
+                name, rule_ids=("HOOK-004",),
+                reason=(
+                    "empty-warehouse build phase: "
+                    f"{name} is locked until governed SQL models exist "
+                    "(P1-opt4 T2 crosscheck extra model round; "
+                    "81c76637 T3 empty-warehouse query loop)"
+                ),
+                recovery=(
+                    "Call chatbi_build_plan now (then chatbi_dbt_draft "
+                    "for every planned model in this turn, using "
+                    "models/{layer}/{name}.sql). Do not "
+                    "chatbi_query_source or chatbi_crosscheck until "
+                    "governed SQL models exist."
+                ))
+        return None
+
+    _BOOTSTRAP_RUN_BLOCK = frozenset({
+        "chatbi_dbt_draft", "chatbi_dbt_execute",
+        "chatbi_query_source", "chatbi_submit_candidate",
+        "chatbi_review", "chatbi_registry_append",
+        "chatbi_semantic_discover",
+    })
+
+    def _bootstrap_run_deny(name: str) -> dict[str, Any] | None:
+        if name not in _BOOTSTRAP_RUN_BLOCK:
+            return None
+        if (scope.workflow_id or "") != "chatbi-analyze":
+            return None
+        boot_rid = getattr(scope, "bootstrap_run_id", "") or ""
+        if not boot_rid or scope.run_id != boot_rid:
+            return None
+        return _deny_raw(
+            name, rule_ids=("HOOK-004",),
+            reason=(
+                "bootstrap run must stop after chatbi_build_plan "
+                "(P1-opt4b 42096b82 T2 premature draft/execute/review)"
+            ),
+            recovery=(
+                "Present the plan and wait for the operator to confirm "
+                "caliber in a later message. Then chatbi_dbt_draft every "
+                "planned model in that turn. Do not chatbi_dbt_execute "
+                "until the owner approves the build."
+            ))
+
     def domain_hook(name: str, func: Callable[..., Any],
                     args: Mapping[str, Any]) -> Any:
+        file_denied = _file_tool_deny(name)
+        if file_denied is not None:
+            return file_denied
+        build_denied = _build_phase_deny(name)
+        if build_denied is not None:
+            return build_denied
+        boot_denied = _bootstrap_run_deny(name)
+        if boot_denied is not None:
+            return boot_denied
         handler = _DISPATCH.get(name)
         if handler is None:
             return func(**args)
@@ -2961,7 +3472,14 @@ class ChatbiRequestGuardrail(BaseGuardrail):
                 self.run_scope.evidence_chain.clear()
                 self.run_scope.review_round = 1
                 self.run_scope.candidate_sha = ""
+                self.run_scope.candidate_content = None
                 self.run_scope.impact = None
+                # P1-opt4: keep file_sql_locked across runs in the same
+                # session (T2 plan must still lock T3 FileTools).
+                # New run (not HITL continue): drop the previous run's
+                # subject pin. Continue keeps the same run_id so the pin
+                # survives AgentOS resume without pre-hooks.
+                self.run_scope.trusted_subject = ""
             self.run_scope.workflow_id = workflow_id or "chatbi-analyze"
             self.run_scope.request = request
             if run_context is not None:
@@ -3018,10 +3536,12 @@ class ChatbiPolicyGuardrail(BaseGuardrail):
     """
 
     def __init__(self, *, config: Any, event_log: Any,
-                 deployment: Any = None) -> None:
+                 deployment: Any = None,
+                 run_scope: RunScope | None = None) -> None:
         self.config = config
         self.event_log = event_log
         self.deployment = deployment
+        self.run_scope = run_scope
 
     def check(self, run_input: Any, run_context: Any = None,
               user_id: str | None = None) -> None:
@@ -3034,6 +3554,8 @@ class ChatbiPolicyGuardrail(BaseGuardrail):
             subject = getattr(run_context, "user_id", "") or ""
         if subject:
             run_subject.set(subject)
+            if self.run_scope is not None:
+                self.run_scope.trusted_subject = subject
         content = getattr(run_input, "input_content", run_input)
         workflow_id, request = _parse_run_input(content)
         if request is None or self.config is None:

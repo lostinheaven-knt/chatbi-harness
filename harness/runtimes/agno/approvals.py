@@ -540,23 +540,63 @@ class ChatBIApprovalCoordinator:
             return True  # unparseable expiry is fail-closed
 
     def _verify_evidence(self, record: ApprovalRecord) -> list[str]:
-        violations: list[str] = []
-        for ref in record.evidence_refs:
-            if not ref:
-                continue
-            if self.evidence_index is None:
-                violations.append(f"evidence index unavailable; cannot verify {ref}")
-                continue
-            rows = self.evidence_index.lookup(run_id=None)
-            matches = [r for r in rows if ref in r.path]
-            if not matches:
-                violations.append(f"evidence ref not indexed: {ref}")
-                continue
-            for row in matches:
-                path = self.workspace_root / row.path
-                if not path.is_file():
-                    violations.append(f"evidence file missing: {row.path}")
+        return match_evidence_refs(
+            record.evidence_refs,
+            evidence_index=self.evidence_index,
+            workspace_root=self.workspace_root,
+        )
+
+
+def match_evidence_refs(
+    refs: tuple[str, ...] | list[str],
+    *,
+    evidence_index: Any,
+    workspace_root: Path | None,
+) -> list[str]:
+    """Resolve approval evidence_refs against the Evidence index (ADR-003).
+
+    A ref hits when it is a substring of an indexed workspace-relative path
+    **or** equals the Evidence JSON ``evidence_source`` / ``content_sha256``.
+    Labels such as ``semantic-layer`` therefore match files named
+    ``evidence-t1_semantic-*.json``. Fabricated paths (``evidence:missing-ref``)
+    still fail closed. Empty refs are skipped by the caller.
+    """
+    violations: list[str] = []
+    nonempty = tuple(r for r in refs if r)
+    if not nonempty:
         return violations
+    if evidence_index is None:
+        for ref in nonempty:
+            violations.append(
+                f"evidence index unavailable; cannot verify {ref}")
+        return violations
+    if workspace_root is None:
+        return violations
+    rows = evidence_index.lookup(run_id=None)
+    root = Path(workspace_root)
+    for ref in refs:
+        if not ref:
+            continue
+        matches = [r for r in rows if ref in (r.path or "")]
+        if not matches:
+            for row in rows:
+                path = root / row.path
+                try:
+                    data = json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, ValueError, TypeError):
+                    continue
+                if not isinstance(data, dict):
+                    continue
+                if data.get("evidence_source") == ref or data.get("content_sha256") == ref:
+                    matches.append(row)
+        if not matches:
+            violations.append(f"evidence ref not indexed: {ref}")
+            continue
+        for row in matches:
+            path = root / row.path
+            if not path.is_file():
+                violations.append(f"evidence file missing: {row.path}")
+    return violations
 
 
 def _context_from_record(record: ApprovalRecord, harness_release: str) -> ApprovalContext:
@@ -670,18 +710,11 @@ def reverify_before_execute(
                 "evidence index unavailable; cannot verify evidence refs "
                 "(fail-closed)")
         elif workspace_root is not None:
-            for ref in record.evidence_refs:
-                if not ref:
-                    continue
-                rows = evidence_index.lookup(run_id=None)
-                matches = [r for r in rows if ref in r.path]
-                if not matches:
-                    violations.append(f"evidence ref not indexed: {ref}")
-                    continue
-                for row in matches:
-                    path = workspace_root / row.path
-                    if not path.is_file():
-                        violations.append(f"evidence file missing: {row.path}")
+            violations.extend(match_evidence_refs(
+                record.evidence_refs,
+                evidence_index=evidence_index,
+                workspace_root=workspace_root,
+            ))
 
     # 7. Kernel policy with the human owner actor (SEM-003 pass). A missing
     #    governance config is fail-closed (LOW-2).

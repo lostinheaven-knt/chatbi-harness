@@ -237,6 +237,10 @@ class RunScope:
     workflow_id: str = ""
     request: Mapping[str, Any] = field(default_factory=dict)
     candidate_sha: str = ""
+    #: Frozen submit_candidate payload (process-local; used by the P1
+    #: time-window precheck so a mismatched Analysis Answer date does not
+    #: burn a live reviewer round).
+    candidate_content: Any = None
     #: Evidence chain entries (source_tier / evidence_source / content_sha256).
     evidence_chain: list[Mapping[str, Any]] = field(default_factory=list)
     review_round: int = 1
@@ -254,6 +258,19 @@ class RunScope:
     #: Content SHAs of unpublished ``chatbi_dbt_draft`` writes this session
     #: (process memory). Used to tag reviewer ``candidate_kind=model-draft``.
     draft_model_shas: set[str] = field(default_factory=set)
+    #: Process-level trusted subject (SEC-003): set ONLY from run context
+    #: (run_context.user_id / user_id) by the guardrail or the run-boundary
+    #: hook; restored into the contextvar on tool calls (HITL resume does
+    #: not re-run pre-hooks). Never a fabricated literal.
+    trusted_subject: str = ""
+    #: P1-opt3: after chatbi_build_plan or a dbt_execute fail this run,
+    #: FileTools (list/search/read) are denied so the model uses the plan
+    #: / compiler ``detail`` instead of re-inventorying the warehouse.
+    file_sql_locked: bool = False
+    #: P1-opt4b: run_id of a successful chatbi_bootstrap this session.
+    #: That same run must stop after chatbi_build_plan (no draft/execute/
+    #: query/submit/review) — live 42096b82 stuffed the T3/T4 loop into T2.
+    bootstrap_run_id: str = ""
 
 
 def evaluate_step_condition(
@@ -391,9 +408,15 @@ def _make_record_request(scope: RunScope) -> Callable[..., dict]:
 
         The request dict REQUIRES exactly these 7 fields:
           question: str            - the business question
-          time_range: str          - analysis window, format
-                                     "YYYY-MM-DD_to_YYYY-MM-DD"
-                                     (e.g. "2024-01-01_to_2024-01-31")
+          time_range: str          - analysis window: "YYYY-MM-DD_to_YYYY-MM-DD"
+                                     (e.g. "2024-01-01_to_2024-01-31") OR the
+                                     literal "latest_available_day" when the
+                                     question has no temporal scope (the
+                                     Analysis Answer then covers the latest
+                                     available day in the data). NEVER invent
+                                     a concrete window the user did not state
+                                     (e.g. "2024-06-01_to_2024-06-30") — no
+                                     basis means no window.
           entity: str              - the entity analyzed (canonical name)
           segment: str             - the user/entity segment
           actor: str               - who is asking (e.g. "operator")
@@ -403,9 +426,9 @@ def _make_record_request(scope: RunScope) -> Callable[..., dict]:
         defaults when the user's question does not state them:
         actor=operator, purpose=decision_support,
         supported_decision=analysis. Ask the user ONLY for what genuinely
-        changes the answer — the analysis window (time_range) when the
-        question has no temporal scope, the entity/segment when ambiguous
-        (REQ-001 clarify). Never guess the window; never send empty
+        changes the answer — use time_range='latest_available_day' when the
+        question has no temporal scope; ASK the entity/segment when ambiguous
+        (REQ-001 clarify). Never guess a calendar window; never send empty
         values."""
         return _echo("chatbi_record_request", request=dict(request or {}))
 
@@ -460,7 +483,23 @@ def _make_build_plan(scope: RunScope) -> Callable[..., dict]:
     def chatbi_build_plan(requirement: dict) -> dict[str, Any]:
         """Derive and validate a layered build plan from a requirement; the
         build-plan hook runs classify_src002_finding + validate_build_plan +
-        validate_layer_dependency."""
+        validate_layer_dependency.
+
+        The requirement REQUIRES a "models" array; every entry needs
+        name (alias ^[a-z][a-z0-9_-]{1,62}$), layer (ods|dwd|dws|ads|dim),
+        change_kind (one of: model|column|semantic|reference|Skill|downstream|
+        eval), owner, upstream_deps, join_or_aggregate_summary. Valid payload:
+
+        {"models": [
+          {"name": "ods_orders", "layer": "ods", "change_kind": "model",
+           "owner": "operator", "upstream_deps": [],
+           "join_or_aggregate_summary": ""},
+          {"name": "dwd_orders", "layer": "dwd", "change_kind": "model",
+           "owner": "operator", "upstream_deps": ["ods_orders"],
+           "join_or_aggregate_summary": "order grain"}]}
+
+        The validation contract is fully specified in this description; do NOT
+        inspect implementation files to infer the payload shape."""
         return _echo("chatbi_build_plan", requirement=dict(requirement or {}))
 
     return chatbi_build_plan
@@ -476,11 +515,25 @@ def _make_impact_manifest(scope: RunScope) -> Callable[..., dict]:
 
 
 def _make_registry_append(scope: RunScope) -> Callable[..., dict]:
-    def chatbi_registry_append(entry: dict) -> dict[str, Any]:
-        """Append a model to the governed registry after the DOC-004 sync
-        gate; protected action -> AgentOS human approval + kernel
-        re-verification (approval hook)."""
-        return _echo("chatbi_registry_append", entry=dict(entry or {}))
+    def chatbi_registry_append(entry: dict | None = None,
+                               entries: list | None = None) -> dict[str, Any]:
+        """Append one or more models to the governed registry after the DOC-004
+        sync gate; protected action -> AgentOS human approval + kernel
+        re-verification (approval hook). Pass ``entries`` for a batch
+        (validated as one unit; any invalid entry blocks the WHOLE batch,
+        nothing is written) or the legacy single ``entry`` (mutually exclusive:
+        passing both is BLOCKED). Valid batch payload:
+        {"entries": [{"target": "ods_orders", "layer": "ods",
+          "change_kind": "model", "actor": "operator",
+          "upstream_deps": [], "summary": ""}, ...]}"""
+        items = []
+        if isinstance(entries, list):
+            items = [dict(e) for e in entries if isinstance(e, dict)]
+        return _echo(
+            "chatbi_registry_append",
+            entries=items,
+            entry=dict(entry) if isinstance(entry, dict) else None,
+        )
 
     return chatbi_registry_append
 
@@ -539,11 +592,25 @@ def _make_bootstrap(scope: RunScope) -> Callable[..., dict]:
         resolve_executable allowlist -> CLI native runner -> source
         inventory -> scaffold).
 
-        The spec REQUIRES the mysql connection fields (kernel
-        build_mysql_adapter_spec). Use the test-environment defaults ONLY
-        when the user does not specify them:
+        The spec MUST be a FLAT JSON object: the mysql connection fields live
+        at the top level of ``spec`` (host/port/user/database/
+        credential_env_name/target_warehouse_db). NEVER nest them under a
+        "mysql" key — the hook shallow-merges ``spec`` into the request and a
+        nested "mysql" key leaves top-level host empty (BLOCKED). Use the
+        test-environment defaults ONLY when the user does not specify them.
+        Complete valid payload:
+
         {"host": "127.0.0.1", "port": 3306, "user": "root",
-         "database": "public", "target_warehouse_db": "dw_agno"}
+         "database": "public", "target_warehouse_db": "dw_agno",
+         "credential_env_name": "MYSQL_PWD",
+         "business_codebases": {"fypro": {"description": "product docs",
+           "path_ref": "fypro_root", "read_mode": "adapter",
+           "git_history": "metadata_only"}},
+         "path_bindings": {"fypro_root": "/Users/me/business/fypro"}}
+
+        Counter-example (BLOCKED): {"mysql": {"host": "..."}}.
+        The validation contract is fully specified in this description; do NOT
+        inspect implementation files to infer the payload shape.
         When the user states different connection values or a different
         source database, use THE USER'S values — they are persisted into
         the local config and take effect. The semantic-layer docs location
@@ -569,7 +636,10 @@ def _make_query_source(scope: RunScope) -> Callable[..., dict]:
         """Query a governed table (dw_agno model or inventoried source
         table) through the mysql CLI (read-only SELECT; the query hook
         enforces the SQL readonly whitelist + table allowlist + tier
-        precondition and records T2/T3 evidence)."""
+        precondition and records T2/T3 evidence). On success the return
+        includes query.content_sha256 — cite that exact hex as
+        evidence:<content_sha256> in provenance_footer (RAW-003); do not
+        cite statement_sha256."""
         return _echo("chatbi_query_source", statement=statement, tier=tier)
 
     return chatbi_query_source
@@ -577,10 +647,13 @@ def _make_query_source(scope: RunScope) -> Callable[..., dict]:
 
 def _make_dbt_draft(scope: RunScope) -> Callable[..., dict]:
     def chatbi_dbt_draft(relative_path: str, content: str) -> dict[str, Any]:
-        """Draft a model file under ws/models/** (the draft hook enforces
-        the models/ path containment + suffix allowlist + size cap and
-        records the candidate SHA; the file is written ONLY through this
-        governed tool, no bare Write)."""
+        """Draft a model file under ws/models/**.
+
+        relative_path MUST be models/{layer}/{name}.sql (or .yml). The hook
+        prefixes a missing models/ when the first segment is
+        ods|dwd|dws|ads|dim; traversal, semantic/, and other roots stay
+        denied. File is written ONLY through this governed tool, no bare
+        Write."""
         return _echo("chatbi_dbt_draft", relative_path=relative_path,
                      content=content)
 
@@ -591,7 +664,14 @@ def _make_dbt_execute(scope: RunScope) -> Callable[..., dict]:
     def chatbi_dbt_execute(operation: str, select: str) -> dict[str, Any]:
         """Run dbt run/test for reviewed model candidates (the execute
         hook enforces the operation/select whitelist, the REV-001 review
-        SHA binding and the dbt argv discipline)."""
+        SHA binding and the dbt argv discipline).
+
+        select MUST match ^[a-z0-9_]+(,[a-z0-9_]+)*$ — one or more model
+        names, comma-separated, no spaces; every name must hit
+        ws/models/**/<name>.sql. Valid:
+        {"operation": "run", "select": "ads_core_metrics,dwd_orders"}.
+        Rejected counter-examples: "+ads_..." (graph selector), "*"
+        (wildcard), "models/foo" (path) — argv injection surface (SEC-001)."""
         return _echo("chatbi_dbt_execute", operation=operation, select=select)
 
     return chatbi_dbt_execute
