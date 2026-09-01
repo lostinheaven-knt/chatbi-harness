@@ -267,6 +267,12 @@ class RunScope:
     #: FileTools (list/search/read) are denied so the model uses the plan
     #: / compiler ``detail`` instead of re-inventorying the warehouse.
     file_sql_locked: bool = False
+    #: P1-opt4e: after a native dbt_execute failure, chatbi_query_source
+    #: is denied until a successful chatbi_dbt_draft (or a later successful
+    #: execute). Session-scoped like file_sql_locked (live 65342e0e T4
+    #: query storm). New session clears it; a new run in the same session
+    #: does not.
+    query_source_locked: bool = False
     #: P1-opt4b: run_id of a successful chatbi_bootstrap this session.
     #: That same run must stop after chatbi_build_plan (no draft/execute/
     #: query/submit/review) — live 42096b82 stuffed the T3/T4 loop into T2.

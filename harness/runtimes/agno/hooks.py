@@ -220,6 +220,94 @@ _FILE_TOOLS = frozenset({
 _FILE_SEARCH_TOOLS = frozenset({
     "list_files", "search_files", "search_content",
 })
+_INVENTORY_REL = ".chatbi/bootstrap/source_inventory.json"
+
+
+def _inventory_table_names(inventory: Any) -> list[dict[str, str]]:
+    """Names-only list from a scanned SourceInventory (P1-opt4e)."""
+    names = sorted({
+        str(getattr(table, "name", "") or "").strip()
+        for table in (getattr(inventory, "tables", ()) or ())
+        if str(getattr(table, "name", "") or "").strip()
+    })
+    return [{"name": name} for name in names]
+
+
+def _source_tables_from_workspace(workspace_root: Path) -> list[dict[str, str]]:
+    """Read inventory names for build_plan.source_tables. Missing → []."""
+    path = Path(workspace_root) / ".chatbi" / "bootstrap" / "source_inventory.json"
+    try:
+        return _inventory_table_names(read_source_inventory(path))
+    except (GateError, OSError, TypeError, ValueError):
+        return []
+
+
+def _is_inventory_read(name: str, args: Mapping[str, Any]) -> bool:
+    """True only for read_file of the governed source inventory path."""
+    if name != "read_file":
+        return False
+    raw = args.get("file_name") or args.get("path") or ""
+    if not isinstance(raw, str) or not raw.strip():
+        return False
+    rel = raw.strip().replace("\\", "/")
+    while rel.startswith("./"):
+        rel = rel[2:]
+    if rel.startswith("/") or ".." in Path(rel).parts:
+        return False
+    return rel == _INVENTORY_REL
+
+
+def _inventory_tables_with_column_names(
+    inventory: Any,
+) -> list[dict[str, Any]]:
+    """Table + column names only (no data_type / PK) for inventory read_file.
+
+    Live ``6e1dfbd4`` T3 dumped ~169 KiB of types into the session; names-only
+    (``9ece39dd``) caused a T4 column-guess storm. Column names are ~40 KiB.
+    """
+    rows: list[dict[str, Any]] = []
+    for table in (getattr(inventory, "tables", ()) or ()):
+        name = str(getattr(table, "name", "") or "").strip()
+        if not name:
+            continue
+        cols: list[str] = []
+        seen: set[str] = set()
+        for column in (getattr(table, "columns", ()) or ()):
+            cname = str(getattr(column, "name", "") or "").strip()
+            if cname and cname not in seen:
+                seen.add(cname)
+                cols.append(cname)
+        rows.append({"name": name, "columns": cols})
+    rows.sort(key=lambda row: row["name"])
+    return rows
+
+
+def _project_inventory_read(
+    name: str, args: Mapping[str, Any], workspace_root: Path,
+) -> dict[str, Any] | None:
+    """Replace full inventory JSON with table+column names (P1-opt4e)."""
+    if not _is_inventory_read(name, args):
+        return None
+    path = (
+        Path(workspace_root) / ".chatbi" / "bootstrap" / "source_inventory.json"
+    )
+    source_db = ""
+    try:
+        inventory = read_source_inventory(path)
+        tables = _inventory_tables_with_column_names(inventory)
+        source_db = str(getattr(inventory, "source_database", "") or "")
+    except (GateError, OSError, TypeError, ValueError):
+        tables = []
+    return {
+        "tool": "read_file",
+        "file_name": _INVENTORY_REL,
+        "projected": "tables[].name+columns[].name",
+        "source_db": source_db,
+        "table_count": len(tables),
+        "tables": tables,
+    }
+
+
 _WINDOW_RE = re.compile(
     r"^(\d{4}-\d{2}-\d{2})_to_(\d{4}-\d{2}-\d{2})$")
 _DATE_RE = re.compile(r"\b(\d{4}-\d{2}-\d{2})\b")
@@ -989,6 +1077,8 @@ def build_tool_hooks(
                     # session (wipe/replay) must start unlocked.
                     if hasattr(scope, "file_sql_locked"):
                         scope.file_sql_locked = False
+                    if hasattr(scope, "query_source_locked"):
+                        scope.query_source_locked = False
                     if hasattr(scope, "bootstrap_run_id"):
                         scope.bootstrap_run_id = ""
                 scope.evidence_chain.clear()
@@ -1978,10 +2068,13 @@ def _build_domain_hook(
                 "drafted. Do not chatbi_dbt_execute until the operator "
                 "approves the build."
             )
+        source_tables = _source_tables_from_workspace(workspace_root)
         if isinstance(result, Mapping):
-            return {**dict(result), "build_plan": {"models": models_out},
+            return {**dict(result), "build_plan": {
+                "models": models_out, "source_tables": source_tables},
                     "next": next_step}
-        return {"status": "ok", "build_plan": {"models": models_out},
+        return {"status": "ok", "build_plan": {
+            "models": models_out, "source_tables": source_tables},
                 "next": next_step}
 
     # --- chatbi_impact_manifest --------------------------------------------
@@ -2559,11 +2652,13 @@ def _build_domain_hook(
             return _deny_raw(name, rule_ids=("HOOK-004",),
                              reason=f"bootstrap failed: {type(error).__name__}",
                              recovery="Inspect the bootstrap chain and re-run")
+        table_names = _inventory_table_names(inventory)
         entry = EvidenceEntry.create(
             source_tier="T2", evidence_source="bootstrap-inventory",
             rule_ids=("PORT-001", "SEC-003", "SEM-003"),
             payload={"source_database": inventory.source_database,
                      "table_count": len(inventory.tables),
+                     "tables": table_names,
                      "business_codebases": codebase_aliases},
             runtime_name="agno", native_run_id=scope.run_id or "",
             harness_release=harness_release,
@@ -2575,7 +2670,8 @@ def _build_domain_hook(
             return {**dict(out), "bootstrap": {
                 "status": "planned",
                 "source_db": str(request.get("database", "")),
-                "table_count": len(inventory.tables)}}
+                "table_count": len(inventory.tables),
+                "tables": table_names}}
         return out
 
     # --- chatbi_query_source (Phase 2, module A) ---------------------------
@@ -2871,6 +2967,8 @@ def _build_domain_hook(
         # models used to overwrite evidence-dbt_draft-<run8>.json so only
         # the last SHA survived (session aae65abe: 32 SQL, 1 evidence row).
         _record(name, f"dbt_draft-{sha[:8]}", entry)
+        if hasattr(scope, "query_source_locked"):
+            scope.query_source_locked = False
         out = func(**args)
         if isinstance(out, Mapping):
             return {**dict(out), "drafted": True,
@@ -2989,6 +3087,8 @@ def _build_domain_hook(
             log_tail = str((result or {}).get("log_tail", "") or "")[
                 :_LOG_TAIL_CAP] if isinstance(result, Mapping) else ""
             scope.file_sql_locked = True
+            if hasattr(scope, "query_source_locked"):
+                scope.query_source_locked = True
             return _deny_raw(
                 name, rule_ids=("HOOK-004",),
                 reason=f"dbt execution failed: {category}",
@@ -3013,6 +3113,8 @@ def _build_domain_hook(
         # reads 4 tier sources); generic workflows see it via
         # _run_evidence_sources.
         _record(name, "dbt_run" if operation == "run" else "dbt_test", entry)
+        if hasattr(scope, "query_source_locked"):
+            scope.query_source_locked = False
         out = func(**args)
         if isinstance(out, Mapping):
             return {**dict(out), "dbt": {"returncode": 0,
@@ -3228,10 +3330,12 @@ def _build_domain_hook(
         "chatbi_semantic_discover": _semantic_discover,
     }
 
-    def _file_tool_deny(name: str) -> dict[str, Any] | None:
+    def _file_tool_deny(name: str, args: Mapping[str, Any]) -> dict[str, Any] | None:
         if name not in _FILE_TOOLS:
             return None
         if getattr(scope, "file_sql_locked", False):
+            if _is_inventory_read(name, args):
+                return None
             return _deny_raw(
                 name, rule_ids=("HOOK-004",),
                 reason=(
@@ -3241,7 +3345,8 @@ def _build_domain_hook(
                 recovery=(
                     "Use chatbi_dbt_draft then chatbi_dbt_execute. Fix SQL "
                     "from the last dbt/mysql deny detail; do not list_files "
-                    "or search_files the warehouse"
+                    "or search_files the warehouse. You may read_file "
+                    ".chatbi/bootstrap/source_inventory.json"
                 ))
         inventory = (
             Path(workspace_root) / ".chatbi" / "bootstrap"
@@ -3326,17 +3431,43 @@ def _build_domain_hook(
                 "until the owner approves the build."
             ))
 
+    def _query_source_locked_deny(name: str) -> dict[str, Any] | None:
+        if name != "chatbi_query_source":
+            return None
+        if not getattr(scope, "query_source_locked", False):
+            return None
+        return _deny_raw(
+            name, rule_ids=("HOOK-004",),
+            reason=(
+                "execute-fail query lock: chatbi_query_source is locked "
+                "until a successful chatbi_dbt_draft "
+                "(65342e0e T4 query storm after dbt nonzero_exit)"
+            ),
+            recovery=(
+                "Fix SQL from the last dbt compiler detail via "
+                "chatbi_dbt_draft (you may read_file "
+                ".chatbi/bootstrap/source_inventory.json for real "
+                "table names). Then chatbi_dbt_execute. Do not "
+                "chatbi_query_source until a draft succeeds."
+            ))
+
     def domain_hook(name: str, func: Callable[..., Any],
                     args: Mapping[str, Any]) -> Any:
-        file_denied = _file_tool_deny(name)
+        file_denied = _file_tool_deny(name, args)
         if file_denied is not None:
             return file_denied
         build_denied = _build_phase_deny(name)
         if build_denied is not None:
             return build_denied
+        query_locked = _query_source_locked_deny(name)
+        if query_locked is not None:
+            return query_locked
         boot_denied = _bootstrap_run_deny(name)
         if boot_denied is not None:
             return boot_denied
+        projected = _project_inventory_read(name, args, workspace_root)
+        if projected is not None:
+            return projected
         handler = _DISPATCH.get(name)
         if handler is None:
             return func(**args)
