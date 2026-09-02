@@ -311,6 +311,78 @@ def _project_inventory_read(
 _WINDOW_RE = re.compile(
     r"^(\d{4}-\d{2}-\d{2})_to_(\d{4}-\d{2}-\d{2})$")
 _DATE_RE = re.compile(r"\b(\d{4}-\d{2}-\d{2})\b")
+_TEMPORAL_TYPE_RE = re.compile(r"date|time|timestamp|datetime", re.I)
+_SQL_DATE_FN_RE = re.compile(
+    r"(?:DATE|TIMESTAMP)\s*\(\s*(?:`?(?:[\w]+)`?\s*\.\s*)?`?([A-Za-z_][\w]*)`?\s*\)"
+    r"|CAST\s*\(\s*(?:`?(?:[\w]+)`?\s*\.\s*)?`?([A-Za-z_][\w]*)`?\s+AS\s+DATE\s*\)",
+    re.I,
+)
+
+
+def _inventory_column_types(
+    workspace_root: Path,
+) -> dict[str, list[str]]:
+    """column_name -> data_types from disk inventory. Missing → {}."""
+    path = Path(workspace_root) / ".chatbi" / "bootstrap" / "source_inventory.json"
+    out: dict[str, list[str]] = {}
+    try:
+        inventory = read_source_inventory(path)
+    except (GateError, OSError, TypeError, ValueError):
+        return out
+    for table in (getattr(inventory, "tables", ()) or ()):
+        for column in (getattr(table, "columns", ()) or ()):
+            cname = str(getattr(column, "name", "") or "").strip()
+            dtype = str(getattr(column, "data_type", "") or "").strip()
+            if cname:
+                out.setdefault(cname, []).append(dtype)
+    return out
+
+
+def _draft_non_temporal_date_deny(
+    content: str, workspace_root: Path,
+) -> dict[str, Any] | None:
+    """Deny DATE()/TIMESTAMP()/CAST AS DATE on non-temporal inventory columns.
+
+    Live ``67fe4594`` T4: DWD ``DATE(analyzed_at)`` on varchar mock timestamps.
+    Types stay on disk; the model still sees names-only inventory reads.
+    """
+    if not isinstance(content, str) or not content.strip():
+        return None
+    if not re.search(r"\b(?:DATE|TIMESTAMP|CAST)\s*\(", content, re.I):
+        return None
+    types = _inventory_column_types(workspace_root)
+    if not types:
+        return None
+    bad: list[str] = []
+    temporal_hint: list[str] = []
+    for match in _SQL_DATE_FN_RE.finditer(content):
+        ident = (match.group(1) or match.group(2) or "").strip()
+        if not ident or ident not in types:
+            continue
+        dtypes = types[ident]
+        if all(not _TEMPORAL_TYPE_RE.search(dt) for dt in dtypes):
+            bad.append(ident)
+    if not bad:
+        return None
+    for name, dtypes in types.items():
+        if any(_TEMPORAL_TYPE_RE.search(dt) for dt in dtypes):
+            temporal_hint.append(name)
+    temporal_hint = sorted(set(temporal_hint))
+    recovery = (
+        "Do not wrap non-temporal columns in DATE()/TIMESTAMP(). "
+        + (f"Use a real time column such as {', '.join(temporal_hint[:8])}."
+           if temporal_hint else
+           "Use a time column from source_inventory or skip daily truncation.")
+    )
+    return {
+        "reason": (
+            "non-temporal DATE() on inventory column "
+            f"{', '.join(sorted(set(bad)))} "
+            "(P2 67fe4594 analyzed_at varchar mock)"
+        ),
+        "recovery": recovery,
+    }
+
 
 
 _EVIDENCE_HEX_RE = re.compile(r"evidence:([0-9a-fA-F]{8,64})")
@@ -1081,13 +1153,13 @@ def build_tool_hooks(
                         scope.query_source_locked = False
                     if hasattr(scope, "bootstrap_run_id"):
                         scope.bootstrap_run_id = ""
+                    if hasattr(scope, "loaded_runbooks"):
+                        scope.loaded_runbooks.clear()
                 scope.evidence_chain.clear()
                 scope.review_round = 1
                 scope.candidate_sha = ""
                 scope.candidate_content = None
                 scope.impact = None
-                if hasattr(scope, "loaded_runbooks"):
-                    scope.loaded_runbooks.clear()
             scope.run_id = run_id or scope.run_id
             scope.session_id = (
                 getattr(run_context, "session_id", "") or scope.session_id
@@ -2913,6 +2985,12 @@ def _build_domain_hook(
                 name, rule_ids=("HOOK-004",),
                 reason="draft content exceeds 256 KiB",
                 recovery="Split the model file below 256 KiB")
+        date_denied = _draft_non_temporal_date_deny(content, workspace_root)
+        if date_denied is not None:
+            return _deny_raw(
+                name, rule_ids=("HOOK-004",),
+                reason=date_denied["reason"],
+                recovery=date_denied["recovery"])
         candidate = workspace_root / rel
         try:
             models_root = (workspace_root / "models").resolve()

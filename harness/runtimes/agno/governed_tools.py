@@ -794,6 +794,7 @@ def build_governed_tools(
             reviewer_agent=reviewer_agent, reviewer_runner=reviewer_runner,
             run_scope=scope,
             reviewer_context_hash=reviewer_context_hash,
+            workspace_root=workspace_root,
         ),
         "chatbi_crosscheck": _make_crosscheck(scope),
         "chatbi_build_plan": _make_build_plan(scope),
